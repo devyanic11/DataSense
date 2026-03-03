@@ -32,7 +32,7 @@ class AIAgent:
     # AGENT 1 — Insight + Chart Config (the main upload pipeline)
     # ─────────────────────────────────────────────────────────────
     @staticmethod
-    def analyze_and_configure_charts(parsed_text: str, filename: str, column_meta: dict) -> dict:
+    def analyze_and_configure_charts(parsed_text: str, filename: str, column_meta: dict, force_chart_types: list[str] | None = None, user_request: str | None = None) -> dict:
         """
         Two-stage agent pipeline:
         Stage 1 → Decide which chart types suit the data.
@@ -100,23 +100,29 @@ class AIAgent:
                 "chart_types": ["Bar Chart", "Pie Chart"]
                 }}
                 """
-        try:
-            model = _get_model()
-            r1 = model.generate_content(prompt_stage1)
-            stage1 = json.loads(_clean_json(r1.text))
-        except Exception as e:
-            return {"summary": f"Analysis error: {e}", "charts": []}
-
-        chart_types = stage1.get("chart_types", [])
-        summary = stage1.get("summary", "")
+        model = _get_model()
+        
+        if force_chart_types:
+            chart_types = force_chart_types
+            summary = "Generated specific chart requested via chat."
+        else:
+            try:
+                r1 = model.generate_content(prompt_stage1)
+                stage1 = json.loads(_clean_json(r1.text))
+                chart_types = stage1.get("chart_types", [])
+                summary = stage1.get("summary", "")
+            except Exception as e:
+                return {"summary": f"Analysis error: {e}", "charts": []}
 
         if not chart_types:
             return {"summary": summary, "charts": []}
 
+        user_context = f"\n            *** USER SPECIFIC REQUEST: '{user_request}' ***\n            Your ONLY job is to map columns to fulfill this request.\n" if user_request else ""
+
         # Stage 2: column mapping for each chart
         prompt_stage2 = f"""
             You are DataSense's visualization configurator AI.
-
+            {user_context}
             File: '{filename}'
             Column metadata (name → type, sample values):
             {cols_info}
@@ -125,11 +131,18 @@ class AIAgent:
             Chart types to configure: {json.dumps(chart_types)}
 
             Column mapping rules per chart type (targeting Plotly Express backend functions):
-            - Bar Chart: x_key (String: categorical column), y_keys (Array of Strings: 1-3 numeric columns)
-            - Line Chart: x_key (String: time or ordered column), y_keys (Array of Strings: 1-3 numeric columns)
-            - Pie Chart: label_key (String: categorical column), value_key (String: ONE numeric column)
-            - Scatter Plot: x_key (String: numeric column), y_keys (Array of Strings: EXACTLY ONE numeric column), tooltip_key (String: optional categorical column for hover)
+            - Bar Chart: x_key (String: categorical/dimensional column), y_keys (Array of Strings: 1-3 metric columns)
+            - Line Chart: x_key (String: time or ordered dimension), y_keys (Array of Strings: 1-3 metric columns)
+            - Pie Chart: label_key (String: categorical/dimensional column), value_key (String: ONE metric column representing size/magnitude)
+            - Scatter Plot: x_key (String: metric column), y_keys (Array of Strings: EXACTLY ONE metric column), tooltip_key (String: optional dimensional column for hover)
             - Knowledge Graph: no columns needed, just title and description
+
+            CRITICAL RULES FOR VALUES:
+            1. Differentiate between "Metrics" (quantitative values you can sum or average, like counts, amounts, durations) and "Dimensions" (attributes or groupings, like names, IDs, dates, years, categories).
+            2. `value_key` and `y_keys` must ALWAYS be "Metrics". 
+            3. `x_key` and `label_key` must ALWAYS be "Dimensions".
+            4. Never map a Dimension (even if it contains numbers, like an ID or a Year) to a `value_key` or `y_keys`.
+            5. Ensure the chosen mapping directly answers the user's request if one was provided in the chat.
 
             IMPORTANT: Use EXACT column names from the metadata above. If a chart type doesn't fit the available data, skip it.
 

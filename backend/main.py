@@ -151,7 +151,8 @@ async def chat_with_data(request: ChatRequest):
             parsed_text=request.content_summary,
             filename=request.filename,
             column_meta=request.column_meta,
-            force_chart_types=[chart_type]
+            force_chart_types=[chart_type],
+            user_request=request.question
         )
         
         charts = config_response.get("charts", [])
