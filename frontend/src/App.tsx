@@ -8,6 +8,7 @@ export type ChartConfig = {
   type: string;
   title: string;
   description?: string;
+  plotly_json?: string;
   x_key?: string;
   y_keys?: string[];
   label_key?: string;
@@ -17,6 +18,7 @@ export type ChartConfig = {
 };
 
 export type InsightData = {
+  file_id: string;
   filename: string;
   content_summary: string;
   insights: {
@@ -32,6 +34,7 @@ export type InsightData = {
 export type ChartRequest = {
   type: string;
   ts: number;
+  new_chart_data?: ChartConfig | null;
 };
 
 function App() {
@@ -43,9 +46,9 @@ function App() {
     setChartRequest(null);
   };
 
-  const handleChartRequested = (chartType: string) => {
+  const handleChartRequested = (chartType: string, newChartData?: ChartConfig | null) => {
     // Always create a new object with a fresh timestamp so React detects the change
-    setChartRequest({ type: chartType, ts: Date.now() });
+    setChartRequest({ type: chartType, ts: Date.now(), new_chart_data: newChartData });
   };
 
   return (
@@ -85,7 +88,9 @@ function App() {
             {/* Bottom Panel: Chat */}
             <div className="h-[400px] shrink-0 bg-white/80 backdrop-blur-xl border border-slate-200 rounded-3xl shadow-xl overflow-hidden shadow-slate-200/50">
               <Chat
+                fileId={insightData.file_id}
                 filename={insightData.filename}
+                columnMeta={insightData.column_meta}
                 contentSummary={insightData.content_summary}
                 onChartRequested={handleChartRequested}
               />

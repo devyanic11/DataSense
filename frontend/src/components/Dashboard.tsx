@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
+import Plot from 'react-plotly.js';
 
 interface DashboardProps {
     data: InsightData;
@@ -272,6 +273,36 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
     const renderChart = () => {
         const cfg = selectedConfig;
         if (!cfg) return null;
+
+        // 1. Prefer Backend Plotly JSON if available
+        if (cfg.plotly_json) {
+            try {
+                const parsed = JSON.parse(cfg.plotly_json);
+                if (parsed.error) {
+                    return (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 gap-2">
+                            <Info size={40} className="text-red-400 opacity-60" />
+                            <p className="text-sm font-semibold text-red-500">Backend Plotly Error</p>
+                            <p className="text-xs text-slate-500 text-center px-6">{parsed.error}</p>
+                        </div>
+                    );
+                }
+                return (
+                    <div className="w-full h-full">
+                        <Plot
+                            data={parsed.data}
+                            layout={{ ...parsed.layout, autosize: true }}
+                            useResizeHandler={true}
+                            style={{ width: '100%', height: '100%' }}
+                            config={{ responsive: true, displayModeBar: false }}
+                        />
+                    </div>
+                );
+            } catch (err) {
+                console.error("Failed to parse plotly json", err);
+            }
+        }
+
         const type = cfg.type.toLowerCase();
 
         // Bar Chart

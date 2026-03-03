@@ -124,11 +124,11 @@ class AIAgent:
             For each of these chart types, output the exact column mapping needed to render the chart.
             Chart types to configure: {json.dumps(chart_types)}
 
-            Column mapping rules per chart type:
-            - Bar Chart: x_key (categorical column), y_keys (list of 1-3 numeric columns)
-            - Line Chart: x_key (time or ordered column), y_keys (list of 1-3 numeric columns)
-            - Pie Chart: label_key (categorical column), value_key (ONE numeric column)
-            - Scatter Plot: x_key (numeric column), y_key (numeric column), tooltip_key (optional categorical)
+            Column mapping rules per chart type (targeting Plotly Express backend functions):
+            - Bar Chart: x_key (String: categorical column), y_keys (Array of Strings: 1-3 numeric columns)
+            - Line Chart: x_key (String: time or ordered column), y_keys (Array of Strings: 1-3 numeric columns)
+            - Pie Chart: label_key (String: categorical column), value_key (String: ONE numeric column)
+            - Scatter Plot: x_key (String: numeric column), y_keys (Array of Strings: EXACTLY ONE numeric column), tooltip_key (String: optional categorical column for hover)
             - Knowledge Graph: no columns needed, just title and description
 
             IMPORTANT: Use EXACT column names from the metadata above. If a chart type doesn't fit the available data, skip it.
