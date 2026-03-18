@@ -92,6 +92,8 @@ async def upload_file(file: UploadFile = File(...)):
                 fig_json = Visualizer.generate_scatter_plot(df, config.get("title", ""), config.get("x_key"), config.get("y_keys", [None])[0], config.get("tooltip_key"))
             elif chart_type == "Histogram":
                 fig_json = Visualizer.generate_histogram(df, config.get("title", ""), config.get("x_key"), config.get("nbins", 30))
+            elif chart_type == "Box Plot":
+                fig_json = Visualizer.generate_box_plot(df, config.get("title", ""), config.get("x_key"), config.get("y_keys", []))
 
             if fig_json:
                 plot_definitions.append({
@@ -174,6 +176,8 @@ async def chat_with_data(request: ChatRequest):
                     fig_json = Visualizer.generate_scatter_plot(df, config.get("title", ""), config.get("x_key"), config.get("y_keys", [None])[0], config.get("tooltip_key"))
                 elif chart_type == "Histogram":
                     fig_json = Visualizer.generate_histogram(df, config.get("title", ""), config.get("x_key"), config.get("nbins", 30))
+                elif chart_type == "Box Plot":
+                    fig_json = Visualizer.generate_box_plot(df, config.get("title", ""), config.get("x_key"), config.get("y_keys", []))
                 
                 if fig_json:
                     plotly_json = fig_json

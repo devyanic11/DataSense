@@ -85,7 +85,7 @@ class AIAgent:
                 Your tasks:
                 1. Write a concise executive summary (2-3 sentences) of what this data represents and its key patterns.
                 2. Recommend 2-4 chart types that are MOST MEANINGFUL for this specific data. Choose ONLY from:
-                [Bar Chart, Line Chart, Pie Chart, Scatter Plot, Histogram, Knowledge Graph]
+                [Bar Chart, Line Chart, Pie Chart, Scatter Plot, Histogram, Box Plot, Knowledge Graph]
 
                 Rules:
                 - "Bar Chart" → if there are categorical + numeric columns (compare groups)
@@ -93,6 +93,7 @@ class AIAgent:
                 - "Pie Chart" → if one categorical + one numeric column shows composition/share
                 - "Scatter Plot" → if there are 2+ numeric columns showing correlation
                 - "Histogram" → if there is a single numeric column and the goal is to understand its distribution, frequency, or spread
+                - "Box Plot" → if there is one categorical column and one numeric column and the goal is to compare spread, median, or outliers across groups
                 - "Knowledge Graph" → ALWAYS include for PDFs/text documents; good for any relational data
 
                 Return ONLY valid JSON (no markdown):
@@ -137,6 +138,7 @@ class AIAgent:
             - Pie Chart: label_key (String: categorical/dimensional column), value_key (String: ONE metric column representing size/magnitude)
             - Scatter Plot: x_key (String: metric column), y_keys (Array of Strings: EXACTLY ONE metric column), tooltip_key (String: optional dimensional column for hover)
             - Histogram: x_key (String: ONE numeric column whose distribution is being analysed)
+            - Box Plot: x_key (String: categorical/dimensional column for grouping), y_key (String: ONE numeric column whose spread is being analysed)
             - Knowledge Graph: no columns needed, just title and description
 
             CRITICAL RULES FOR VALUES:
@@ -170,6 +172,13 @@ class AIAgent:
                 "x_key": "ColumnName",
                 "nbins": 30,
                 "description": "Two sentence description."
+            }},
+            {{
+                "type": "Box Plot",
+                "title": "Descriptive chart title",
+                "x_key": "CategoryColumn",
+                "y_key": "ColumnName",
+                "description": "Two sentence about what this shows."
             }},
             {{
                 "type": "Knowledge Graph",

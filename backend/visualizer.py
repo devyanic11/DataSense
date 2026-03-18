@@ -116,3 +116,41 @@ class Visualizer:
             return fig.to_json()
         except Exception as e:
             return json.dumps({"error": f"Histogram Error: {str(e)}"})
+
+    @staticmethod
+    def generate_box_plot(df: pd.DataFrame, title: str, x_col: str, y_col: str) -> str:
+        """Generates a box plot JSON showing spread and outliers of a numeric column across categories."""
+        try:
+            plot_df = df.copy()
+
+            # Safety: too many categories makes the chart unreadable — keep top 15 by count
+            if plot_df[x_col].nunique() > 15:
+                top_categories = (
+                    plot_df[x_col].value_counts().nlargest(15).index
+                )
+                plot_df = plot_df[plot_df[x_col].isin(top_categories)]
+
+            # Safety: sample down for very large datasets
+            if len(plot_df) > 20000:
+                plot_df = plot_df.sample(n=20000, random_state=42)
+
+            fig = px.box(
+                plot_df,
+                x=x_col,
+                y=y_col,
+                color=x_col,
+                color_discrete_sequence=[
+                    '#8b5cf6', '#3b82f6', '#ec4899',
+                    '#f97316', '#14b8a6', '#f59e0b', '#ef4444'
+                ],
+                points='outliers'   # only draw outlier dots, not all points — keeps it clean
+            )
+            fig = Visualizer._apply_theme(fig, title)
+            fig.update_layout(
+                showlegend=False,    # color already encodes x_col, legend is redundant
+                boxgap=0.3,
+                boxgroupgap=0.2
+            )
+            return fig.to_json()
+        except Exception as e:
+            return json.dumps({"error": f"Box Plot Error: {str(e)}"})
