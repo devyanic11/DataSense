@@ -154,3 +154,93 @@ class Visualizer:
             return fig.to_json()
         except Exception as e:
             return json.dumps({"error": f"Box Plot Error: {str(e)}"})
+        
+    @staticmethod
+    def generate_heatmap(df: pd.DataFrame, title: str, columns: list[str] | None = None) -> str:
+        """
+        Generates a correlation heatmap JSON from numeric columns.
+        'columns' is an optional subset list — defaults to all numeric columns in df.
+        """
+        try:
+            # ── 1. Column Selection ──────────────────────────────────────────
+            if columns:
+                numeric_df = df[columns].select_dtypes(include='number')
+            else:
+                numeric_df = df.select_dtypes(include='number')
+
+            if numeric_df.shape[1] < 2:
+                return json.dumps({
+                    "error": "Heatmap requires at least 2 numeric columns in the dataset."
+                })
+
+            # ── 2. Column Cap ────────────────────────────────────────────────
+            if numeric_df.shape[1] > 20:
+                top_cols = (
+                    numeric_df.var()
+                    .nlargest(20)
+                    .index
+                    .tolist()
+                )
+                numeric_df = numeric_df[top_cols]
+
+            # ── 3. Row Safety ────────────────────────────────────────────────
+            if len(numeric_df) > 50000:
+                numeric_df = numeric_df.sample(n=50000, random_state=42)
+
+            # ── 4. Correlation Matrix ────────────────────────────────────────
+            numeric_df = numeric_df.dropna(axis=1, how='all')
+            corr_matrix = numeric_df.corr(method='pearson').round(2)
+
+            # ── 5. Build Figure ──────────────────────────────────────────────
+            fig = px.imshow(
+                corr_matrix,
+                text_auto=False,      # manual texttemplate gives precise control
+                aspect='auto',
+                zmin=-1,
+                zmax=1,
+                color_continuous_scale=[[0.0,  '#ef4444'], [0.25, '#fca5a5'],[0.5,  '#f8fafc'], 
+                                             [0.75, '#c4b5fd'], [1.0,  '#8b5cf6'],] 
+                 # -1.0  strong negative → red | -0.5  weak negative   → light red | 0.0  no correlation  → near-white, 
+                 # +0.5  weak positive   → light violet | +1.0  strong positive → violet
+            )
+
+            # ── 6. Annotation Polish ─────────────────────────────────────────
+            fig.update_traces(
+                texttemplate='%{z:.2f}',  # correct attribute for imshow heatmap cells
+                textfont=dict(
+                    size=11,
+                    family='Inter, sans-serif',
+                    color='#1e293b'
+                )
+            )
+            # ── 7. Colorbar Styling ──────────────────────────────────────────
+            fig.update_coloraxes(
+                colorbar=dict(
+                    title=dict(
+                        text='r',
+                        font=dict(color='#475569', family='Inter, sans-serif', size=13)
+                    ),
+                    tickfont=dict(color='#475569', family='Inter, sans-serif', size=11),
+                    thickness=14,
+                    len=0.85,
+                    tickvals=[-1, -0.5, 0, 0.5, 1],
+                    ticktext=['-1', '-0.5', '0', '+0.5', '+1']
+                )
+            )
+            # ── 8. Axis Polish ───────────────────────────────────────────────
+            fig.update_layout(
+                xaxis=dict(
+                    tickangle=-40,
+                    tickfont=dict(size=11, color='#475569', family='Inter, sans-serif'),
+                    side='bottom'
+                ),
+                yaxis=dict(
+                    tickfont=dict(size=11, color='#475569', family='Inter, sans-serif'),
+                    autorange='reversed'
+                )
+            )
+
+            fig = Visualizer._apply_theme(fig, title)
+            return fig.to_json()
+        except Exception as e:
+            return json.dumps({"error": f"Heatmap Error: {str(e)}"})
