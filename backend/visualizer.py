@@ -96,3 +96,23 @@ class Visualizer:
             return fig.to_json()
         except Exception as e:
             return json.dumps({"error": f"Scatter Plot Error: {str(e)}"})
+        
+    @staticmethod
+    def generate_histogram(df: pd.DataFrame, title: str, x_col: str, nbins: int = 30) -> str:
+        """Generates a histogram JSON showing distribution of a single numeric column."""
+        try:
+            # Safety: sample down if dataset is very large
+            plot_df = df.sample(n=min(len(df), 20000), random_state=42) if len(df) > 20000 else df
+
+            fig = px.histogram(
+                plot_df,
+                x=x_col,
+                nbins=nbins,
+                color_discrete_sequence=['#8b5cf6']
+            )
+            fig = Visualizer._apply_theme(fig, title)
+            fig.update_traces(marker_line_width=0.5, marker_line_color='white')
+            fig.update_layout(bargap=0.05)
+            return fig.to_json()
+        except Exception as e:
+            return json.dumps({"error": f"Histogram Error: {str(e)}"})
