@@ -3,6 +3,7 @@
 DataSense is an intelligent, multi-agent web application that transforms raw data files (CSV, JSON, XLSX, PDF) into interactive business dashboards and insights in minutes. It leverages the Gemini API to analyze uploaded data, intelligently suggest visualizations, and configure complex chart mappings automatically. Users can also interact with their data using natural language through an integrated chat interface.
 
 ## Table of Contents
+
 - [Features](#features)
 - [Architecture & Data Flow](#architecture--data-flow)
 - [Tech Stack](#tech-stack)
@@ -10,6 +11,7 @@ DataSense is an intelligent, multi-agent web application that transforms raw dat
 - [How the AI Agents Work](#how-the-ai-agents-work)
 
 ## Features
+
 - **Intelligent File Parsing**: Supports various formats including structured tabular data (CSV, XLSX, JSON) and unstructured text (PDF).
 - **Automated Dashboard Generation**: AI analyzes the data schema and automatically generates relevant charts (Bar, Line, Pie, Scatter, etc.) with correct column mappings.
 - **Natural Language Interaction**: Chat with your data to ask questions or request specific visualization types.
@@ -29,7 +31,7 @@ graph TD
         Uploader[File Upload Component]
         Dashboard[Dynamic Dashboard Component]
         ChatUI[Chat Interface Component]
-        
+
         UI --> Uploader
         UI --> Dashboard
         UI --> ChatUI
@@ -40,7 +42,7 @@ graph TD
         API[FastAPI Endpoints]
         Parser[Data Parser Module]
         AIAgent[AI Agent Pipeline]
-        
+
         API --> Parser
         API --> AIAgent
     end
@@ -54,13 +56,14 @@ graph TD
     AIAgent -- "Analyze & Configure" --> External
     External -- "JSON Insights & Chart Configs" --> AIAgent
     API -- "Return Tabular Data & Configs" --> Dashboard
-    
+
     ChatUI -- "User Query" --> AIAgent
     AIAgent -- "Natural Language & Chart Tags" --> ChatUI
     ChatUI -- "Trigger New Chart `<CHART: Type>`" --> Dashboard
 ```
 
 ### Flow Breakdown:
+
 1. **Upload Phase**: The user uploads a file via the React frontend.
 2. **Parsing Phase**: The FastAPI backend parses the file. If tabular, it extracts maximum 300 rows and generates detailed column metadata (types, distinct values, min/max). If PDF, it extracts text.
 3. **AI Pipeline Stage 1**: The data schema is sent to Gemini to generate an executive summary and suggest 3-4 optimal chart types.
@@ -71,6 +74,7 @@ graph TD
 ## Tech Stack
 
 ### Frontend
+
 - **React 18** (Vite)
 - **TypeScript**
 - **Tailwind CSS v4** (Light theme + Glassmorphism)
@@ -79,6 +83,7 @@ graph TD
 - **Lucide React** (Icons)
 
 ### Backend
+
 - **Python 3.11**
 - **FastAPI** (Web framework)
 - **Google Generative AI (Gemini)** (LLM engine)
@@ -88,16 +93,19 @@ graph TD
 ## Getting Started
 
 ### Prerequisites
+
 - Node.js v20.19+
 - Python 3.10+
 - A Google Gemini API Key
 
 ### Backend Setup
+
 1. Navigate to the `backend` directory.
 2. Create and activate a virtual environment:
    ```bash
-   python3 -m venv venv
-   source venv/bin/activate
+   python3 -m venv .venv
+   mac: source venv/bin/activate
+   Windows: .venv\Scripts\activate
    ```
 3. Install dependencies:
    ```bash
@@ -113,6 +121,7 @@ graph TD
    ```
 
 ### Frontend Setup
+
 1. Navigate to the `frontend` directory.
 2. Install dependencies:
    ```bash
@@ -126,8 +135,8 @@ graph TD
 
 ## How the AI Agents Work
 
-DataSense relies on precision prompt engineering rather than raw language generation. 
+DataSense relies on precision prompt engineering rather than raw language generation.
 
 1. **The Analyzer Agent**: Responsible for ingesting the data schema. It strictly outputs JSON containing `content_summary` and `insights`. It is instructed to act as a Data Scientist, prioritizing actionable business intelligence.
 2. **The Configuration Agent**: Takes the list of suggested chart types and the data schema, and acts as a "Frontend Developer". It maps specific keys like `x_key`, `y_keys`, and `value_key` so the Recharts library knows exactly what data to plot.
-3. **The Chat Agent**: Handles the conversation history. It is programmed with a strict negative constraint: *Never output code blocks*. Instead, if a user requests a new layout or metric visualization, it outputs an HTML-like tag (e.g., `<CHART: Scatter Plot>`) alongside conversational text. The React frontend parses this tag to update application state, bridging the gap between natural language and UI rendering seamlessly.
+3. **The Chat Agent**: Handles the conversation history. It is programmed with a strict negative constraint: _Never output code blocks_. Instead, if a user requests a new layout or metric visualization, it outputs an HTML-like tag (e.g., `<CHART: Scatter Plot>`) alongside conversational text. The React frontend parses this tag to update application state, bridging the gap between natural language and UI rendering seamlessly.
