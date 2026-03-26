@@ -4,10 +4,14 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+import type { ChartConfig } from '../App';
+
 interface ChatProps {
+    fileId: string;
     filename: string;
+    columnMeta: Record<string, any>;
     contentSummary: string;
-    onChartRequested?: (chartType: string) => void;
+    onChartRequested?: (chartType: string, newChartData?: ChartConfig | null) => void;
 }
 
 interface Message {
@@ -16,7 +20,7 @@ interface Message {
     text: string;
 }
 
-export default function Chat({ filename, contentSummary, onChartRequested }: ChatProps) {
+export default function Chat({ fileId, filename, columnMeta, contentSummary, onChartRequested }: ChatProps) {
     const [messages, setMessages] = useState<Message[]>([
         {
             id: '1',
@@ -61,6 +65,9 @@ export default function Chat({ filename, contentSummary, onChartRequested }: Cha
                 }, []);
 
             const response = await axios.post("http://localhost:8000/api/chat", {
+                file_id: fileId,
+                filename: filename,
+                column_meta: columnMeta,
                 content_summary: contentSummary,
                 question: userMsg,
                 history: history
@@ -73,8 +80,21 @@ export default function Chat({ filename, contentSummary, onChartRequested }: Cha
             const chartMatch = answer.match(/[`*]*<CHART:\s*(.*?)>[`*]*/i);
             if (chartMatch && chartMatch[1]) {
                 const chartType = chartMatch[1].trim();
+                const newChartInfo = response.data.new_chart;
+                const plotlyJson = response.data.plotly_json;
+
+                let chartPayload: ChartConfig | null = null;
+                if (newChartInfo && plotlyJson) {
+                    chartPayload = {
+                        type: newChartInfo.type,
+                        title: newChartInfo.title,
+                        description: newChartInfo.description,
+                        plotly_json: plotlyJson
+                    };
+                }
+
                 if (onChartRequested) {
-                    onChartRequested(chartType);
+                    onChartRequested(chartType, chartPayload);
                 }
                 // Remove the tag from the displayed message
                 answer = answer.replace(chartMatch[0], '').trim();

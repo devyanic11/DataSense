@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { UploadCloud, FileType, CheckCircle, AlertCircle, Loader2, X, Eye } from 'lucide-react';
 import axios from 'axios';
 import type { InsightData } from '../App';
@@ -28,12 +28,31 @@ export default function FileUpload({ onSuccess }: FileUploadProps) {
     const [dragActive, setDragActive] = useState(false);
     const [files, setFiles] = useState<FileWithContent[]>([]);
     const [loading, setLoading] = useState(false);
+    const [loadingText, setLoadingText] = useState("Analyzing Data...");
     const [previewLoading, setPreviewLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [mergeType, setMergeType] = useState<'union' | 'join' | 'intersect'>('union');
     const [preview, setPreview] = useState<PreviewData | null>(null);
     const [showPreview, setShowPreview] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (!loading) return;
+        const texts = [
+            "Parsing file structure...",
+            "Extracting schema and column metadata...",
+            "AI is mapping relations...",
+            "Generating optimized visual configurations...",
+            "Finalizing your interactive dashboard..."
+        ];
+        let i = 0;
+        setLoadingText(texts[0]);
+        const interval = setInterval(() => {
+            i = (i + 1) % texts.length;
+            setLoadingText(texts[i]);
+        }, 3000);
+        return () => clearInterval(interval);
+    }, [loading]);
 
     const handleDrag = (e: React.DragEvent) => {
         e.preventDefault();
@@ -158,7 +177,7 @@ export default function FileUpload({ onSuccess }: FileUploadProps) {
             </div>
 
             <div
-                className={`relative group flex flex-col items-center justify-center w-full h-80 rounded-3xl border-2 border-dashed transition-all duration-300 ${dragActive
+                className={`relative group flex flex-col items-center justify-center w-full h-96 md:h-[450px] rounded-3xl border-2 border-dashed transition-all duration-300 ${dragActive
                     ? "border-orange-500 bg-orange-100 scale-[1.02]"
                     : "border-slate-300 bg-white hover:border-orange-400 hover:bg-orange-50"
                     } shadow-lg`}
@@ -328,6 +347,9 @@ export default function FileUpload({ onSuccess }: FileUploadProps) {
                     {loading ? (
                         <>
                             <Loader2 size={24} className="animate-spin" />
+                            <span className="min-w-[280px] text-center">{loadingText}</span>
+                            {/* Progress bar overlay animation */}
+                            <div className="absolute inset-0 bg-white/20 animate-pulse" />
                             <span>Processing...</span>
                         </>
                     ) : (

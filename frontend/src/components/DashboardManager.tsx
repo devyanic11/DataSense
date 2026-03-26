@@ -80,6 +80,7 @@ export default function DashboardManager({ insightData, onDashboardLoaded }: Das
             const response = await axios.get(`http://localhost:8000/api/dashboard/${id}`);
             if (onDashboardLoaded) {
                 onDashboardLoaded({
+                    file_id: response.data.file_id,
                     filename: response.data.filename,
                     content_summary: response.data.content_summary,
                     original_data: response.data.original_data,
