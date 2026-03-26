@@ -96,3 +96,151 @@ class Visualizer:
             return fig.to_json()
         except Exception as e:
             return json.dumps({"error": f"Scatter Plot Error: {str(e)}"})
+        
+    @staticmethod
+    def generate_histogram(df: pd.DataFrame, title: str, x_col: str, nbins: int = 30) -> str:
+        """Generates a histogram JSON showing distribution of a single numeric column."""
+        try:
+            # Safety: sample down if dataset is very large
+            plot_df = df.sample(n=min(len(df), 20000), random_state=42) if len(df) > 20000 else df
+
+            fig = px.histogram(
+                plot_df,
+                x=x_col,
+                nbins=nbins,
+                color_discrete_sequence=['#8b5cf6']
+            )
+            fig = Visualizer._apply_theme(fig, title)
+            fig.update_traces(marker_line_width=0.5, marker_line_color='white')
+            fig.update_layout(bargap=0.05)
+            return fig.to_json()
+        except Exception as e:
+            return json.dumps({"error": f"Histogram Error: {str(e)}"})
+
+    @staticmethod
+    def generate_box_plot(df: pd.DataFrame, title: str, x_col: str, y_col: str) -> str:
+        """Generates a box plot JSON showing spread and outliers of a numeric column across categories."""
+        try:
+            plot_df = df.copy()
+
+            # Safety: too many categories makes the chart unreadable — keep top 15 by count
+            if plot_df[x_col].nunique() > 15:
+                top_categories = (
+                    plot_df[x_col].value_counts().nlargest(15).index
+                )
+                plot_df = plot_df[plot_df[x_col].isin(top_categories)]
+
+            # Safety: sample down for very large datasets
+            if len(plot_df) > 20000:
+                plot_df = plot_df.sample(n=20000, random_state=42)
+
+            fig = px.box(
+                plot_df,
+                x=x_col,
+                y=y_col,
+                color=x_col,
+                color_discrete_sequence=[
+                    '#8b5cf6', '#3b82f6', '#ec4899',
+                    '#f97316', '#14b8a6', '#f59e0b', '#ef4444'
+                ],
+                points='outliers'   # only draw outlier dots, not all points — keeps it clean
+            )
+            fig = Visualizer._apply_theme(fig, title)
+            fig.update_layout(
+                showlegend=False,    # color already encodes x_col, legend is redundant
+                boxgap=0.3,
+                boxgroupgap=0.2
+            )
+            return fig.to_json()
+        except Exception as e:
+            return json.dumps({"error": f"Box Plot Error: {str(e)}"})
+        
+    @staticmethod
+    def generate_heatmap(df: pd.DataFrame, title: str, columns: list[str] | None = None) -> str:
+        """
+        Generates a correlation heatmap JSON from numeric columns.
+        'columns' is an optional subset list — defaults to all numeric columns in df.
+        """
+        try:
+            # ── 1. Column Selection ──────────────────────────────────────────
+            if columns:
+                numeric_df = df[columns].select_dtypes(include='number')
+            else:
+                numeric_df = df.select_dtypes(include='number')
+
+            if numeric_df.shape[1] < 2:
+                return json.dumps({
+                    "error": "Heatmap requires at least 2 numeric columns in the dataset."
+                })
+
+            # ── 2. Column Cap ────────────────────────────────────────────────
+            if numeric_df.shape[1] > 20:
+                top_cols = (
+                    numeric_df.var()
+                    .nlargest(20)
+                    .index
+                    .tolist()
+                )
+                numeric_df = numeric_df[top_cols]
+
+            # ── 3. Row Safety ────────────────────────────────────────────────
+            if len(numeric_df) > 50000:
+                numeric_df = numeric_df.sample(n=50000, random_state=42)
+
+            # ── 4. Correlation Matrix ────────────────────────────────────────
+            numeric_df = numeric_df.dropna(axis=1, how='all')
+            corr_matrix = numeric_df.corr(method='pearson').round(2)
+
+            # ── 5. Build Figure ──────────────────────────────────────────────
+            fig = px.imshow(
+                corr_matrix,
+                text_auto=False,      # manual texttemplate gives precise control
+                aspect='auto',
+                zmin=-1,
+                zmax=1,
+                color_continuous_scale=[[0.0,  '#ef4444'], [0.25, '#fca5a5'],[0.5,  '#f8fafc'], 
+                                             [0.75, '#c4b5fd'], [1.0,  '#8b5cf6'],] 
+                 # -1.0  strong negative → red | -0.5  weak negative   → light red | 0.0  no correlation  → near-white, 
+                 # +0.5  weak positive   → light violet | +1.0  strong positive → violet
+            )
+
+            # ── 6. Annotation Polish ─────────────────────────────────────────
+            fig.update_traces(
+                texttemplate='%{z:.2f}',  # correct attribute for imshow heatmap cells
+                textfont=dict(
+                    size=11,
+                    family='Inter, sans-serif',
+                    color='#1e293b'
+                )
+            )
+            # ── 7. Colorbar Styling ──────────────────────────────────────────
+            fig.update_coloraxes(
+                colorbar=dict(
+                    title=dict(
+                        text='r',
+                        font=dict(color='#475569', family='Inter, sans-serif', size=13)
+                    ),
+                    tickfont=dict(color='#475569', family='Inter, sans-serif', size=11),
+                    thickness=14,
+                    len=0.85,
+                    tickvals=[-1, -0.5, 0, 0.5, 1],
+                    ticktext=['-1', '-0.5', '0', '+0.5', '+1']
+                )
+            )
+            # ── 8. Axis Polish ───────────────────────────────────────────────
+            fig.update_layout(
+                xaxis=dict(
+                    tickangle=-40,
+                    tickfont=dict(size=11, color='#475569', family='Inter, sans-serif'),
+                    side='bottom'
+                ),
+                yaxis=dict(
+                    tickfont=dict(size=11, color='#475569', family='Inter, sans-serif'),
+                    autorange='reversed'
+                )
+            )
+
+            fig = Visualizer._apply_theme(fig, title)
+            return fig.to_json()
+        except Exception as e:
+            return json.dumps({"error": f"Heatmap Error: {str(e)}"})

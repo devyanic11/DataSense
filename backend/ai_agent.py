@@ -85,14 +85,32 @@ class AIAgent:
                 Your tasks:
                 1. Write a concise executive summary (2-3 sentences) of what this data represents and its key patterns.
                 2. Recommend 2-4 chart types that are MOST MEANINGFUL for this specific data. Choose ONLY from:
-                [Bar Chart, Line Chart, Pie Chart, Scatter Plot, Knowledge Graph]
+                [Bar Chart, Line Chart, Pie Chart, Scatter Plot, Histogram, Box Plot, Heatmap, Knowledge Graph]
 
                 Rules:
-                - "Bar Chart" → if there are categorical + numeric columns (compare groups)
-                - "Line Chart" → if there is a time-series or ordered numeric progression
-                - "Pie Chart" → if one categorical + one numeric column shows composition/share
-                - "Scatter Plot" → if there are 2+ numeric columns showing correlation
-                - "Knowledge Graph" → ALWAYS include for PDFs/text documents; good for any relational data
+                - "Bar Chart" → categorical x + numeric y, goal is comparing magnitudes across groups.
+                                AVOID if x-axis is time-based, has 20+ unique values, or values sum to 100%. (compare groups or show breakdowns)
+                - "Line Chart" → x-axis is a date, month, year, timestamp, or any ordered/sequential column.
+                                PREFER over Bar whenever time or progression is present, even if stored as string.
+                - "Pie Chart" → one categorical (2-8 unique values only) + one numeric that represents parts of a whole.
+                                AVOID if values don't sum meaningfully or if Bar Chart shows the comparison more clearly.
+                - "Scatter Plot" → if there are 2+ independent numeric columns where the goal is correlation or clustering.
+                                AVOID if either axis is an ID, index, or flag column disguised as numeric.
+                - "Histogram" → exactly one continuous numeric column, goal is distribution or frequency of values.
+                                AVOID on categorical, ID, or near-constant columns — they produce meaningless bins.
+                - "Box Plot" → one categorical grouping column + one numeric column, goal is spread or outlier comparison.
+                                AVOID if the categorical column has only 1 unique value or the numeric column barely varies.
+                - "Heatmap" → 3 or more numeric columns, goal is understanding correlations across all of them at once.
+                                AVOID if numeric columns are IDs or flags — correlation between those is meaningless.
+                - "Knowledge Graph" → always include for PDFs or text documents, and for any relational or hierarchical dataset.
+                                Can be combined with other chart types on mixed datasets.
+
+                Tie-breaking rules:
+                → if data has BOTH time AND categories, prefer Line Chart with color grouping over Bar Chart
+                → if unsure between Pie and Bar, choose Bar — it is more universally readable
+                → if unsure between Scatter and Line, check the x-axis: ordered/sequential = Line, independent numeric = Scatter
+                → never recommend more than 4 chart types total for a single dataset
+                → never recommend the same chart type twice
 
                 Return ONLY valid JSON (no markdown):
                 {{
@@ -135,6 +153,9 @@ class AIAgent:
             - Line Chart: x_key (String: time or ordered dimension), y_keys (Array of Strings: 1-3 metric columns)
             - Pie Chart: label_key (String: categorical/dimensional column), value_key (String: ONE metric column representing size/magnitude)
             - Scatter Plot: x_key (String: metric column), y_keys (Array of Strings: EXACTLY ONE metric column), tooltip_key (String: optional dimensional column for hover)
+            - Histogram: x_key (String: ONE numeric column whose distribution is being analysed)
+            - Box Plot: x_key (String: categorical/dimensional column for grouping), y_key (String: ONE numeric column whose spread is being analysed)
+            - Heatmap: columns (Array of Strings OR null: list of numeric column names to include in correlation matrix — if all numeric columns should be used, set to null)
             - Knowledge Graph: no columns needed, just title and description
 
             CRITICAL RULES FOR VALUES:
@@ -161,6 +182,26 @@ class AIAgent:
                 "label_key": "ColumnName",
                 "value_key": "ColumnName",
                 "description": "One sentence."
+            }},
+            {{
+                "type": "Histogram",
+                "title": "Descriptive chart title",
+                "x_key": "ColumnName",
+                "nbins": 30,
+                "description": "Two sentence description."
+            }},
+            {{
+                "type": "Box Plot",
+                "title": "Descriptive chart title",
+                "x_key": "CategoryColumn",
+                "y_key": "ColumnName",
+                "description": "Two sentence about what this shows."
+            }},
+            {{
+                "type": "Heatmap",
+                "title": "Descriptive chart title",
+                "columns": null,
+                "description": "Two sentence about what this shows."
             }},
             {{
                 "type": "Knowledge Graph",
