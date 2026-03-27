@@ -2,6 +2,7 @@ import os
 import google.generativeai as genai
 from dotenv import load_dotenv
 import json
+import requests
 
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
@@ -12,6 +13,29 @@ if api_key:
 
 def _get_model():
     return genai.GenerativeModel('gemini-2.5-flash')
+
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = "llama3:latest"
+
+
+def _llama_chat(prompt: str, json_mode: bool = False) -> str:
+    """Call local Ollama Llama 3 instance. Returns raw text."""
+    try:
+        payload = {
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.3, "num_predict": 2048},
+        }
+        if json_mode:
+            payload["format"] = "json"
+        resp = requests.post(OLLAMA_URL, json=payload, timeout=120)
+        resp.raise_for_status()
+        return resp.json().get("response", "")
+    except Exception as e:
+        print(f"Ollama error: {e}")
+        return ""
 
 
 def _clean_json(text: str) -> str:
@@ -263,47 +287,38 @@ class AIAgent:
             return {"nodes": [], "edges": []}
 
     # ─────────────────────────────────────────────────────────────
-    # AGENT 3 — Conversational chat with data
+    # AGENT 3 — Conversational chat with data (Llama 3 via Ollama)
     # ─────────────────────────────────────────────────────────────
     @staticmethod
     def chat_with_data(parsed_text: str, question: str, previous_history: list = None) -> str:
-        """Answers questions about the uploaded data with optional chart triggers."""
-        if not api_key or api_key == "your_api_key_here":
-            return "Error: Gemini API Key is missing in the backend/.env file."
+        """Answers questions about the uploaded data with optional chart triggers. Uses Llama 3."""
+        history_text = "\n".join([
+            f"User: {msg['user']}\nAgent: {msg['agent']}"
+            for msg in (previous_history or [])
+        ])
 
-        try:
-            model = _get_model()
-            history_text = "\n".join([
-                f"User: {msg['user']}\nAgent: {msg['agent']}"
-                for msg in (previous_history or [])
-            ])
+        prompt = f"""You are DataSense's AI data assistant. You answer questions about uploaded data.
 
-            prompt = f"""
-                You are DataSense's AI data assistant. You answer questions about uploaded data.
+DATA CONTEXT:
+{parsed_text[:10000]}
 
-                DATA CONTEXT:
-                {parsed_text[:10000]}
+CONVERSATION HISTORY:
+{history_text}
 
-                CONVERSATION HISTORY:
-                {history_text}
+USER QUESTION: {question}
 
-                USER QUESTION: {question}
-
-                RESPONSE RULES:
-                1. Answer clearly and concisely using ONLY the data context above.
-                2. Use Markdown formatting: tables, bullet points, bold text for readability.
-                3. NEVER output any code, HTML, JavaScript, Python, or implementation details. You are a data analyst, not a programmer.
-                4. If the user asks to CREATE, SHOW, GENERATE, or DISPLAY a visualization (e.g. "show me a scatter plot", "create a bar chart", "can I see a pie chart", "visualize this as a line chart"):
-                - You MUST start your response with EXACTLY this tag on its own line: <CHART: ChartType>
-                - ChartType must be one of: Bar Chart, Line Chart, Pie Chart, Scatter Plot, Knowledge Graph
-                - After the tag, write a brief 1-2 sentence description of what the visualization shows based on the data. Do NOT describe how to build it.
-                - Example response: "<CHART: Scatter Plot>\nI've generated a scatter plot showing the relationship between Age and Score. You can see a positive correlation trend."
-                5. If the user is just asking a question (not requesting a visualization), answer normally without any CHART tag.
-                """
-            response = model.generate_content(prompt)
-            return response.text
-        except Exception as e:
-            return f"Error: {str(e)}"
+RESPONSE RULES:
+1. Answer clearly and concisely using ONLY the data context above.
+2. Use Markdown formatting: tables, bullet points, bold text for readability.
+3. NEVER output any code, HTML, JavaScript, Python, or implementation details. You are a data analyst, not a programmer.
+4. If the user asks to CREATE, SHOW, GENERATE, or DISPLAY a visualization (e.g. "show me a scatter plot", "create a bar chart", "can I see a pie chart", "visualize this as a line chart"):
+   - You MUST start your response with EXACTLY this tag on its own line: <CHART: ChartType>
+   - ChartType must be one of: Bar Chart, Line Chart, Pie Chart, Scatter Plot, Knowledge Graph
+   - After the tag, write a brief 1-2 sentence description of what the visualization shows based on the data. Do NOT describe how to build it.
+5. If the user is just asking a question (not requesting a visualization), answer normally without any CHART tag.
+"""
+        result = _llama_chat(prompt)
+        return result if result else "Sorry, I couldn't process that request. Please try again."
 
     # ─────────────────────────────────────────────────────────────
     # AGENT 3B — Smart chat: AI generates pandas intent, backend
@@ -312,22 +327,16 @@ class AIAgent:
     @staticmethod
     def generate_data_query(question: str, column_meta: dict, parsed_text_preview: str, previous_history: list = None) -> dict:
         """
-        Stage 1 of smart chat: Ask Gemini to translate user question into
+        Stage 1 of smart chat: Ask Llama 3 to translate user question into
         a pandas operation JSON, rather than trying to answer from sample data.
         Returns: { "operation": str, "params": dict, "narrative_hint": str }
         """
-        if not api_key or api_key == "your_api_key_here":
-            return {"operation": "passthrough", "params": {}, "narrative_hint": ""}
-
-        try:
-            model = _get_model()
-            cols_info = json.dumps(column_meta, indent=2)
-            history_text = "\n".join([
-                f"User: {msg['user']}\nAgent: {msg['agent']}"
-                for msg in (previous_history or [])
-            ])
-            prompt = f"""
-You are a data query planner. The user has a DataFrame with these columns:
+        cols_info = json.dumps(column_meta, indent=2)[:3000]
+        history_text = "\n".join([
+            f"User: {msg['user']}\nAgent: {msg['agent']}"
+            for msg in (previous_history or [])
+        ])
+        prompt = f"""You are a data query planner. The user has a DataFrame with these columns:
 {cols_info}
 
 Data preview:
@@ -358,30 +367,27 @@ Pick ONE operation from:
 
 Also include a "narrative_hint" — a short instruction for how to phrase the answer to the user.
 
-Return ONLY valid JSON (no markdown):
-{{"operation": "...", "params": {{...}}, "narrative_hint": "..."}}
-"""
-            response = model.generate_content(prompt)
-            return json.loads(_clean_json(response.text))
+Return ONLY valid JSON with no markdown fences:
+{{"operation": "...", "params": {{...}}, "narrative_hint": "..."}}"""
+        try:
+            result = _llama_chat(prompt, json_mode=True)
+            if result:
+                return json.loads(_clean_json(result))
         except Exception:
-            return {"operation": "passthrough", "params": {}, "narrative_hint": ""}
+            pass
+        return {"operation": "summary", "params": {}, "narrative_hint": "Provide a general overview of the data."}
 
     @staticmethod
     def narrate_result(question: str, operation: str, result_text: str, narrative_hint: str, previous_history: list = None) -> str:
         """
         Stage 2 of smart chat: Given the actual query result from the full DataFrame,
-        ask Gemini to format a nice human-readable answer.
+        ask Llama 3 to format a nice human-readable answer.
         """
-        if not api_key or api_key == "your_api_key_here":
-            return result_text
-        try:
-            model = _get_model()
-            history_text = "\n".join([
-                f"User: {msg['user']}\nAgent: {msg['agent']}"
-                for msg in (previous_history or [])
-            ])
-            prompt = f"""
-You are a data analyst. The user asked: "{question}"
+        history_text = "\n".join([
+            f"User: {msg['user']}\nAgent: {msg['agent']}"
+            for msg in (previous_history or [])
+        ])
+        prompt = f"""You are a data analyst. The user asked: "{question}"
 
 The system executed a query on the FULL dataset and got this result:
 {result_text[:6000]}
@@ -398,10 +404,36 @@ Rules:
 4. Never output code. Never say you only have sample data — you have the full result.
 5. If the user asked for a visualization, start with <CHART: ChartType> tag (Bar Chart, Line Chart, Pie Chart, Scatter Plot, Knowledge Graph).
 """
-            response = model.generate_content(prompt)
-            return response.text
-        except Exception as e:
-            return result_text
+        result = _llama_chat(prompt)
+        return result if result else result_text
+
+    # ─────────────────────────────────────────────────────────────
+    # AGENT 3C — Suggestion pills (Llama 3)
+    # ─────────────────────────────────────────────────────────────
+    @staticmethod
+    def generate_suggestions(column_meta: dict, filename: str) -> list:
+        """Generate 5 context-aware chat suggestion pills using Llama 3."""
+        cols_info = json.dumps(column_meta, indent=2)[:2000]
+        prompt = f"""You are a data analyst assistant. Given this dataset '{filename}' with these columns:
+{cols_info}
+
+Generate exactly 5 short, specific questions a user would likely ask about this data.
+Each question should be:
+- Under 60 characters
+- Actionable (can be answered by querying the data)
+- Varied (mix of stats, comparisons, distributions, top-N, outliers)
+
+Return ONLY a JSON array of 5 strings, nothing else:
+["question 1", "question 2", "question 3", "question 4", "question 5"]"""
+        try:
+            result = _llama_chat(prompt, json_mode=True)
+            if result:
+                parsed = json.loads(_clean_json(result))
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    return parsed[:5]
+        except Exception:
+            pass
+        return []
 
     # ─────────────────────────────────────────────────────────────
     # Legacy method — kept for backward compatibility

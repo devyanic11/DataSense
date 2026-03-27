@@ -167,13 +167,18 @@ async def chat_with_data(request: ChatRequest):
     narrative_hint = query.get("narrative_hint", "")
 
     # If AI detected a chart request, use original pipeline
-    if operation in ("chart", "passthrough"):
+    if operation == "chart":
         response_text = AIAgent.chat_with_data(
             parsed_text=request.content_summary,
             question=request.question,
             previous_history=request.history
         )
         return _process_chat_response(response_text, request)
+
+    # If passthrough or unrecognized, default to summary on full data
+    if operation == "passthrough":
+        operation = "summary"
+        params = {}
 
     # ── Stage 2: Execute pandas query on the FULL DataFrame ──
     result_text = _execute_pandas_query(df, operation, params)
@@ -346,6 +351,24 @@ def _process_chat_response(response_text: str, request: ChatRequest) -> dict:
         "new_chart": chart_info,
         "plotly_json": plotly_json
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# Suggestions — AI-generated suggestion pills (Llama 3)
+# ─────────────────────────────────────────────────────────────
+class SuggestionsRequest(BaseModel):
+    column_meta: dict
+    filename: str
+
+
+@app.post("/api/suggestions")
+async def get_suggestions(request: SuggestionsRequest):
+    """Generate context-aware chat suggestion pills using Llama 3."""
+    suggestions = AIAgent.generate_suggestions(
+        column_meta=request.column_meta,
+        filename=request.filename,
+    )
+    return {"suggestions": suggestions}
 
 
 # ─────────────────────────────────────────────────────────────

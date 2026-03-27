@@ -45,6 +45,7 @@ function App() {
   const [chartRequest, setChartRequest] = useState<ChartRequest | null>(null);
   const [activeView, setActiveView] = useState<ViewType>('dashboard');
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatPinned, setChatPinned] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState('');
@@ -243,22 +244,39 @@ function App() {
           )}
         </main>
 
-        {/* ─── CHAT SLIDE-OVER ──────────────────────────────── */}
-        <div className={`chat-backdrop ${chatOpen ? 'open' : ''}`} onClick={() => setChatOpen(false)} />
-        <div className={`chat-panel ${chatOpen ? 'open' : ''}`} style={{ display: 'flex', flexDirection: 'column' }}>
-          {insightData && (
+        {/* ─── CHAT SLIDE-OVER / PINNED PANEL ───────────────── */}
+        {!chatPinned && <div className={`chat-backdrop ${chatOpen ? 'open' : ''}`} onClick={() => setChatOpen(false)} />}
+        {!chatPinned && (
+          <div className={`chat-panel ${chatOpen ? 'open' : ''}`} style={{ display: 'flex', flexDirection: 'column' }}>
+            {insightData && (
+              <Chat
+                fileId={insightData.file_id}
+                filename={insightData.filename}
+                columnMeta={insightData.column_meta}
+                contentSummary={insightData.content_summary}
+                onChartRequested={(type, data) => { handleChartRequested(type, data); setChatOpen(false); }}
+                isPinned={false}
+                onPin={() => { setChatPinned(true); setChatOpen(false); }}
+              />
+            )}
+          </div>
+        )}
+        {chatPinned && insightData && (
+          <div className="chat-panel-pinned" style={{ display: 'flex', flexDirection: 'column', width: 380, minWidth: 380, borderLeft: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
             <Chat
               fileId={insightData.file_id}
               filename={insightData.filename}
               columnMeta={insightData.column_meta}
               contentSummary={insightData.content_summary}
-              onChartRequested={(type, data) => { handleChartRequested(type, data); setChatOpen(false); }}
+              onChartRequested={(type, data) => { handleChartRequested(type, data); }}
+              isPinned={true}
+              onPin={() => setChatPinned(false)}
             />
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Chat FAB */}
-        {insightData && !chatOpen && (
+        {insightData && !chatOpen && !chatPinned && (
           <button
             onClick={() => setChatOpen(true)}
             className="fixed z-50 flex items-center justify-center transition-all"
