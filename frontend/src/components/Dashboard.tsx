@@ -6,11 +6,12 @@ import {
 } from 'recharts';
 import {
     Activity, PieChart as PieChartIcon, BarChart2, TrendingUp,
-    Map as MapIcon, Network, Loader2, Plus, Info, Pencil, Download, Trash2
+    Map as MapIcon, Network, Loader2, Plus, Info, Pencil, Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import Plot from 'react-plotly.js';
+import ForceGraph2D from 'react-force-graph-2d';
 import ChartEditor from './ChartEditor';
 import type { EditorConfig } from './ChartEditor';
 
@@ -71,40 +72,131 @@ function formatKPIValue(v: number): string {
 interface GraphNode { id: string; data: { label: string } }
 interface GraphEdge { id: string; source: string; target: string; label?: string }
 
-function SimpleKnowledgeGraph({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEdge[] }) {
-    const r = 200; const cx = 320; const cy = 220;
-    const positions: Record<string, { x: number; y: number }> = {};
-    nodes.forEach((node, i) => {
-        const angle = (i / nodes.length) * 2 * Math.PI - Math.PI / 2;
-        positions[node.id] = { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-    });
+function InteractiveKnowledgeGraph({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEdge[] }) {
+    const graphRef = useRef<any>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+        const resizeObserver = new ResizeObserver(entries => {
+            if (entries[0]) {
+                const { width, height } = entries[0].contentRect;
+                setDimensions({ width, height });
+            }
+        });
+        resizeObserver.observe(containerRef.current);
+        return () => resizeObserver.disconnect();
+    }, []);
+
+    useEffect(() => {
+        if (graphRef.current) {
+            // Adjust physics forces: strong repulsion, longer links
+            graphRef.current.d3Force('charge').strength(-400); 
+            graphRef.current.d3Force('link').distance(80);     
+            // Zoom to fit after a short delay so physics can settle the nodes naturally
+            setTimeout(() => {
+                if (graphRef.current) graphRef.current.zoomToFit(400, 50);
+            }, 800);
+        }
+    }, [nodes, edges]);
+
+    const graphData = useMemo(() => ({
+        nodes: nodes.map(n => ({ id: n.id, label: n.data.label || n.id })),
+        links: edges.map(e => ({ source: e.source, target: e.target, label: e.label })),
+    }), [nodes, edges]);
+
     return (
-        <div className="w-full h-full relative overflow-hidden" style={{ minHeight: 400 }}>
-            <svg width="100%" height="100%" viewBox="0 0 640 440" className="absolute inset-0">
-                {edges.map(edge => {
-                    const from = positions[edge.source]; const to = positions[edge.target];
-                    if (!from || !to) return null;
-                    const mx = (from.x + to.x) / 2; const my = (from.y + to.y) / 2;
-                    return (
-                        <g key={edge.id}>
-                            <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="rgba(129,140,248,0.3)" strokeWidth="1.5" strokeDasharray="4 4" />
-                            {edge.label && <text x={mx} y={my - 6} fill="rgba(165,180,252,0.7)" fontSize="9" textAnchor="middle">{edge.label}</text>}
-                        </g>
-                    );
-                })}
-                {nodes.map(node => {
-                    const pos = positions[node.id]; if (!pos) return null;
-                    const label = node.data.label || node.id;
-                    return (
-                        <g key={node.id}>
-                            <rect x={pos.x - 50} y={pos.y - 16} width={100} height={32} rx={10} fill="var(--bg-elevated)" stroke="var(--border)" strokeWidth="1" />
-                            <text x={pos.x} y={pos.y + 4} fill="var(--text-primary)" fontSize="11" textAnchor="middle" fontWeight="500">
-                                {label.length > 14 ? label.slice(0, 13) + '…' : label}
-                            </text>
-                        </g>
-                    );
-                })}
-            </svg>
+        <div ref={containerRef} className="w-full h-full relative overflow-hidden" style={{ minHeight: 400, background: 'transparent' }}>
+            {dimensions.width > 0 && (
+                <ForceGraph2D
+                    ref={graphRef}
+                    width={dimensions.width}
+                    height={dimensions.height}
+                    graphData={graphData}
+                    nodeRelSize={6}
+                    linkColor={() => 'rgba(129,140,248,0.4)'}
+                    linkWidth={1.5}
+                    linkDirectionalArrowLength={3.5}
+                    linkDirectionalArrowRelPos={1}
+                    linkCanvasObjectMode={() => 'after'}
+                    linkCanvasObject={(link: any, ctx) => {
+                        if (!link.label) return;
+                        const MAX_FONT_SIZE = 4;
+                        const label = link.label;
+                        const start = link.source;
+                        const end = link.target;
+                        if (!start || !end || !start.x || !start.y || !end.x || !end.y) return;
+                        const textPos = {
+                            x: start.x + (end.x - start.x) / 2,
+                            y: start.y + (end.y - start.y) / 2
+                        };
+                        const relLink = { x: end.x - start.x, y: end.y - start.y };
+                        let textAngle = Math.atan2(relLink.y, relLink.x);
+                        if (textAngle > Math.PI / 2) textAngle = -(Math.PI - textAngle);
+                        if (textAngle < -Math.PI / 2) textAngle = -(Math.PI + textAngle);
+                        const fontSize = MAX_FONT_SIZE;
+                        ctx.font = `${fontSize}px Inter, sans-serif`;
+                        ctx.save();
+                        ctx.translate(textPos.x, textPos.y);
+                        ctx.rotate(textAngle);
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillStyle = 'rgba(165,180,252,0.9)';
+                        ctx.fillText(label, 0, -3);
+                        ctx.restore();
+                    }}
+                    nodeCanvasObject={(node: any, ctx, globalScale) => {
+                        const label = node.label;
+                        const fontSize = 12 / globalScale;
+                        ctx.font = `500 ${fontSize}px Inter, sans-serif`;
+                        const textWidth = ctx.measureText(label).width;
+                        const bckgDimensions = [textWidth + (16 / globalScale), fontSize + (8 / globalScale)]; // padding
+
+                        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                        ctx.fillStyle = isDark ? 'rgba(30, 41, 59, 1)' : 'rgba(255, 255, 255, 1)';
+                        
+                        ctx.beginPath();
+                        const r = 4 / globalScale;
+                        const x = node.x - bckgDimensions[0] / 2;
+                        const y = node.y - bckgDimensions[1] / 2;
+                        const w = bckgDimensions[0];
+                        const h = bckgDimensions[1];
+                        ctx.moveTo(x + r, y);
+                        ctx.lineTo(x + w - r, y);
+                        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+                        ctx.lineTo(x + w, y + h - r);
+                        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+                        ctx.lineTo(x + r, y + h);
+                        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+                        ctx.lineTo(x, y + r);
+                        ctx.quadraticCurveTo(x, y, x + r, y);
+                        ctx.closePath();
+                        ctx.fill();
+                        ctx.lineWidth = 1 / globalScale;
+                        ctx.strokeStyle = isDark ? 'rgba(51, 65, 85, 1)' : 'rgba(226, 232, 240, 1)';
+                        ctx.stroke();
+
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillStyle = isDark ? '#f8fafc' : '#1e293b';
+                        ctx.fillText(label, node.x, node.y + (1 / globalScale));
+                        
+                        node.__bckgDimensions = bckgDimensions; // save for pointer area hit detection
+                    }}
+                    nodePointerAreaPaint={(node: any, color, ctx) => {
+                        ctx.fillStyle = color;
+                        const bckgDimensions = node.__bckgDimensions;
+                        if (bckgDimensions) {
+                            ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] / 2, bckgDimensions[0], bckgDimensions[1]);
+                        } else {
+                            ctx.beginPath();
+                            ctx.arc(node.x, node.y, 5, 0, 2 * Math.PI, false);
+                            ctx.fill();
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 }
@@ -318,7 +410,7 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
                 <Loader2 size={48} className="animate-spin" style={{ color: 'var(--accent)' }} /><p style={{ fontSize: 13 }}>AI is generating the Knowledge Graph…</p></div>);
             if (graphNodes.length === 0) return (<div className="w-full h-full flex flex-col items-center justify-center gap-3" style={{ color: 'var(--text-muted)' }}>
                 <Network size={56} style={{ opacity: 0.3 }} /><p style={{ fontSize: 13 }}>No graph data could be extracted.</p></div>);
-            return <SimpleKnowledgeGraph nodes={graphNodes} edges={graphEdges} />;
+            return <InteractiveKnowledgeGraph nodes={graphNodes} edges={graphEdges} />;
         }
 
         // Fallback

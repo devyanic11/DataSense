@@ -32,6 +32,7 @@ export type InsightData = {
   original_data: any[];
   chart_configs: ChartConfig[];
   column_meta: Record<string, any>;
+  chat_suggestions?: string[];
 };
 
 export type ChartRequest = {
@@ -246,34 +247,30 @@ function App() {
 
         {/* ─── CHAT SLIDE-OVER / PINNED PANEL ───────────────── */}
         {!chatPinned && <div className={`chat-backdrop ${chatOpen ? 'open' : ''}`} onClick={() => setChatOpen(false)} />}
-        {!chatPinned && (
-          <div className={`chat-panel ${chatOpen ? 'open' : ''}`} style={{ display: 'flex', flexDirection: 'column' }}>
-            {insightData && (
-              <Chat
-                fileId={insightData.file_id}
-                filename={insightData.filename}
-                columnMeta={insightData.column_meta}
-                contentSummary={insightData.content_summary}
-                onChartRequested={(type, data) => { handleChartRequested(type, data); setChatOpen(false); }}
-                isPinned={false}
-                onPin={() => { setChatPinned(true); setChatOpen(false); }}
-              />
-            )}
-          </div>
-        )}
-        {chatPinned && insightData && (
-          <div className="chat-panel-pinned" style={{ display: 'flex', flexDirection: 'column', width: 380, minWidth: 380, borderLeft: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+        <div 
+          className={chatPinned ? "chat-panel-pinned flex flex-col w-[380px] min-w-[380px] border-l border-[var(--border)] bg-[var(--bg-surface)]" : `chat-panel ${chatOpen ? 'open' : ''}`} 
+          style={chatPinned ? {} : { display: 'flex', flexDirection: 'column' }}
+        >
+          {insightData && (
             <Chat
               fileId={insightData.file_id}
               filename={insightData.filename}
               columnMeta={insightData.column_meta}
               contentSummary={insightData.content_summary}
-              onChartRequested={(type, data) => { handleChartRequested(type, data); }}
-              isPinned={true}
-              onPin={() => setChatPinned(false)}
+              chatSuggestions={insightData.chat_suggestions}
+              onChartRequested={(type, data) => handleChartRequested(type, data)}
+              isPinned={chatPinned}
+              onPin={() => {
+                if (chatPinned) {
+                  setChatPinned(false);
+                } else {
+                  setChatPinned(true);
+                  setChatOpen(false);
+                }
+              }}
             />
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Chat FAB */}
         {insightData && !chatOpen && !chatPinned && (

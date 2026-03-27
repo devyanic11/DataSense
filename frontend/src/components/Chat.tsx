@@ -15,6 +15,7 @@ interface ChatProps {
     chartType: string,
     newChartData?: ChartConfig | null,
   ) => void;
+  chatSuggestions?: string[];
   isPinned?: boolean;
   onPin?: () => void;
 }
@@ -108,6 +109,7 @@ export default function Chat({
   filename,
   columnMeta,
   contentSummary,
+  chatSuggestions,
   onChartRequested,
   isPinned = false,
   onPin,
@@ -121,43 +123,13 @@ export default function Chat({
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [suggestionsLoading, setSuggestionsLoading] = useState(true);
+  const [suggestions, setSuggestions] = useState<string[]>(
+    chatSuggestions && chatSuggestions.length > 0
+      ? chatSuggestions
+      : generateFallbackSuggestions(columnMeta || {}, filename)
+  );
   const [expandedTable, setExpandedTable] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // ─── Fetch AI suggestions on mount ─────────────────────────
-  useEffect(() => {
-    let cancelled = false;
-    setSuggestionsLoading(true);
-    axios
-      .post("http://localhost:8000/api/suggestions", {
-        column_meta: columnMeta,
-        filename,
-      })
-      .then((res) => {
-        if (!cancelled && res.data?.suggestions?.length > 0) {
-          setSuggestions(res.data.suggestions);
-        } else if (!cancelled) {
-          setSuggestions(
-            generateFallbackSuggestions(columnMeta || {}, filename),
-          );
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSuggestions(
-            generateFallbackSuggestions(columnMeta || {}, filename),
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setSuggestionsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [columnMeta, filename]);
 
   const scrollToBottom = () =>
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -492,37 +464,25 @@ export default function Chat({
                 "linear-gradient(to right, black 80%, transparent 100%)",
             }}
           >
-            {suggestionsLoading ? (
-              <span
+            {suggestions.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => handleSend(s)}
+                className="shrink-0 transition-all"
                 style={{
                   fontSize: 11,
-                  color: "var(--text-muted)",
                   padding: "5px 12px",
+                  borderRadius: 20,
+                  border: "1px solid var(--border)",
+                  background: "var(--bg-elevated)",
+                  color: "var(--text-secondary)",
+                  whiteSpace: "nowrap",
+                  cursor: "pointer",
                 }}
               >
-                Loading suggestions…
-              </span>
-            ) : (
-              suggestions.map((s, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleSend(s)}
-                  className="shrink-0 transition-all"
-                  style={{
-                    fontSize: 11,
-                    padding: "5px 12px",
-                    borderRadius: 20,
-                    border: "1px solid var(--border)",
-                    background: "var(--bg-elevated)",
-                    color: "var(--text-secondary)",
-                    whiteSpace: "nowrap",
-                    cursor: "pointer",
-                  }}
-                >
-                  {s}
-                </button>
-              ))
-            )}
+                {s}
+              </button>
+            ))}
           </div>
         )}
 

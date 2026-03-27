@@ -77,6 +77,9 @@ async def upload_file(file: UploadFile = File(...)):
 
     # Multi-Agent AI Analysis (now generates Plotly arguments)
     analysis = AIAgent.analyze_and_configure_charts(parsed_text, filename, column_meta)
+    
+    # Pre-generate Llama 3 chat suggestions so they are ready immediately
+    suggestions = AIAgent.generate_suggestions(column_meta, filename)
 
     # Convert the AI "logical" configs into actual Plotly JSON strings using the complete DataFrame
     plot_definitions = []
@@ -120,6 +123,7 @@ async def upload_file(file: UploadFile = File(...)):
             "summary": analysis.get("summary", ""),
             "suggested_charts": [c.get("type", "") for c in analysis.get("charts", [])],
         },
+        "chat_suggestions": suggestions,
         "chart_configs": plot_definitions, # Now containing complete Plotly JSONs
         "status": "success"
     }
