@@ -50,22 +50,69 @@ function prepareRows(raw: any[], limit = 30): any[] {
 }
 
 // ─── KPI Generator (pure JS, zero AI) ──────────────────────
-function generateKPIs(columnMeta: Record<string, any>, rawData: any[]) {
-    return Object.entries(columnMeta)
-        .filter(([, v]) => v.type === 'numeric')
-        .slice(0, 4)
-        .map(([col, meta]) => ({
-            label: col,
-            value: rawData.reduce((s, r) => s + (Number(r[col]) || 0), 0),
-            max: meta.max,
-            nullCount: meta.null_count ?? 0,
-        }));
+interface StatRow {
+    label: string;
+    value: string;
+}
+interface KPIItem {
+    colName: string;
+    kind: 'numeric' | 'identifier' | 'categorical';
+    stats: StatRow[];
 }
 
-function formatKPIValue(v: number): string {
+function fmt(v: number | undefined | null): string {
+    if (v === undefined || v === null) return '—';
     if (Math.abs(v) >= 1_000_000) return (v / 1_000_000).toFixed(1) + 'M';
     if (Math.abs(v) >= 1_000) return (v / 1_000).toFixed(1) + 'K';
-    return v.toLocaleString();
+    if (Number.isInteger(v)) return v.toLocaleString();
+    return v.toFixed(2);
+}
+
+function generateKPIs(columnMeta: Record<string, any>, _rawData: any[]): KPIItem[] {
+    if (!columnMeta || columnMeta._is_document) return [];
+    const kpis: KPIItem[] = [];
+    const entries = Object.entries(columnMeta).filter(([k]) => !k.startsWith('_'));
+
+    const isIdentifier = (col: string, meta: any): boolean => {
+        const name = col.toLowerCase();
+        if (/^(year|yr|id|index|row|serial|code|zip|pin|phone)/.test(name)) return true;
+        if (meta.type !== 'numeric') return false;
+        const min = Number(meta.min ?? 0), max = Number(meta.max ?? 0);
+        if (min >= 1900 && max <= 2100 && Number.isInteger(min) && Number.isInteger(max)) return true;
+        return false;
+    };
+
+    for (const [col, meta] of entries) {
+        if (kpis.length >= 4) break;
+        const stats: StatRow[] = [];
+
+        if (meta.type === 'numeric') {
+            if (isIdentifier(col, meta)) {
+                stats.push({ label: 'Range', value: `${meta.min} – ${meta.max}` });
+                if (meta.nunique != null) stats.push({ label: 'Unique', value: fmt(meta.nunique) });
+                kpis.push({ colName: col, kind: 'identifier', stats });
+            } else {
+                if (meta.mean != null) stats.push({ label: 'Mean', value: fmt(meta.mean) });
+                if (meta.median != null) stats.push({ label: 'Median', value: fmt(meta.median) });
+                if (meta.std != null && meta.std > 0) stats.push({ label: 'Std Dev', value: fmt(meta.std) });
+                if (meta.mode != null) stats.push({ label: 'Mode', value: fmt(meta.mode) });
+                if (meta.min != null && meta.max != null) stats.push({ label: 'Range', value: `${fmt(meta.min)} – ${fmt(meta.max)}` });
+                kpis.push({ colName: col, kind: 'numeric', stats });
+            }
+        } else {
+            // Categorical
+            if (meta.nunique != null) stats.push({ label: 'Unique', value: String(meta.nunique) });
+            if (meta.top_values) {
+                const topEntries = Object.entries(meta.top_values).slice(0, 3);
+                topEntries.forEach(([val, count], i) => {
+                    stats.push({ label: i === 0 ? 'Top' : `#${i + 1}`, value: `${val} (${count})` });
+                });
+            }
+            if (meta.null_count > 0) stats.push({ label: 'Missing', value: String(meta.null_count) });
+            kpis.push({ colName: col, kind: 'categorical', stats });
+        }
+    }
+    return kpis;
 }
 
 // ─── Knowledge Graph ────────────────────────────────────────
@@ -442,13 +489,32 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
             {kpis.length > 0 && (
                 <div className="grid gap-3 mb-7" style={{ gridTemplateColumns: `repeat(${Math.min(kpis.length, 4)}, 1fr)` }}>
                     {kpis.map(kpi => (
-                        <div key={kpi.label} className="transition-transform hover:-translate-y-0.5"
-                             style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px' }}>
-                            <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {kpi.label}
+                        <div key={kpi.colName} className="transition-transform hover:-translate-y-0.5"
+                             style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 18px' }}>
+                            {/* Column name + kind badge */}
+                            <div className="flex items-center gap-2 mb-2" style={{ minHeight: 20 }}>
+                                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                                    {kpi.colName}
+                                </span>
+                                <span style={{
+                                    fontSize: 9, fontWeight: 600, letterSpacing: '0.04em', padding: '2px 6px', borderRadius: 4,
+                                    background: kpi.kind === 'numeric' ? 'rgba(99,102,241,0.12)' : kpi.kind === 'identifier' ? 'rgba(251,191,36,0.12)' : 'rgba(52,211,153,0.12)',
+                                    color: kpi.kind === 'numeric' ? '#818CF8' : kpi.kind === 'identifier' ? '#FBBF24' : '#34D399',
+                                    textTransform: 'uppercase', whiteSpace: 'nowrap'
+                                }}>
+                                    {kpi.kind === 'identifier' ? 'ID' : kpi.kind === 'numeric' ? 'NUM' : 'CAT'}
+                                </span>
                             </div>
-                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 500, color: 'var(--text-primary)', lineHeight: 1 }}>
-                                {formatKPIValue(kpi.value)}
+                            {/* Stat rows */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                {kpi.stats.map(s => (
+                                    <div key={s.label} className="flex items-center justify-between" style={{ fontSize: 12, lineHeight: 1.4 }}>
+                                        <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{s.label}</span>
+                                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)', fontWeight: 500, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>
+                                            {s.value}
+                                        </span>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     ))}

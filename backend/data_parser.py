@@ -110,8 +110,18 @@ class DataParser:
                         "null_count": int(df[col].isna().sum())
                     }
                     if is_numeric:
-                        meta[col]["min"] = float(df[col].min()) if not df[col].empty else 0
-                        meta[col]["max"] = float(df[col].max()) if not df[col].empty else 0
+                        col_data = df[col].dropna()
+                        meta[col]["min"] = float(col_data.min()) if not col_data.empty else 0
+                        meta[col]["max"] = float(col_data.max()) if not col_data.empty else 0
+                        meta[col]["mean"] = round(float(col_data.mean()), 2) if not col_data.empty else 0
+                        meta[col]["median"] = round(float(col_data.median()), 2) if not col_data.empty else 0
+                        meta[col]["std"] = round(float(col_data.std()), 2) if len(col_data) > 1 else 0
+                        mode_vals = col_data.mode()
+                        meta[col]["mode"] = round(float(mode_vals.iloc[0]), 2) if not mode_vals.empty else None
+                    else:
+                        # top 3 most frequent values for categorical columns
+                        top = df[col].value_counts().head(3)
+                        meta[col]["top_values"] = {str(k)[:40]: int(v) for k, v in top.items()}
                 return meta
             # PDF or unstructured
             return {"_is_document": True}
