@@ -4,8 +4,24 @@ import axios from 'axios';
 import type { InsightData, ChartConfig } from '../App';
 
 // ─── Types ───────────────────────────────────────────────────
+interface DataOverview {
+    total_columns: number;
+    column_breakdown: { numeric: number; categorical: number; datetime: number };
+    columns: Array<{
+        name: string;
+        type: string;
+        null_count?: number;
+        min?: number;
+        max?: number;
+        mean?: number;
+        unique_count?: number;
+        top_value?: string;
+    }>;
+}
+
 interface ReportNarrative {
     executive_summary: string;
+    data_overview?: DataOverview;
     chart_interpretations: Record<string, string>;
     key_findings: string[];
     closing_takeaway: string;
@@ -155,15 +171,6 @@ export async function generateReport(
 
     pdf.line(MARGIN, infoY + 2, PAGE_W - MARGIN, infoY + 2);
 
-    // Quick summary at bottom of cover
-    if (data.insights?.summary) {
-        pdf.setFontSize(10);
-        pdf.setTextColor(TEXT_SECONDARY);
-        pdf.setFont('helvetica', 'italic');
-        const summaryLines = pdf.splitTextToSize(data.insights.summary, CONTENT_W);
-        pdf.text(summaryLines.slice(0, 6), MARGIN, infoY + 14);
-    }
-
     // Footer
     pdf.setFontSize(7);
     pdf.setTextColor(TEXT_MUTED);
@@ -171,41 +178,104 @@ export async function generateReport(
     addPageNumber(pdf, pageNum.val);
 
     // ═══════════════════════════════════════════════════════════
-    // PAGE 2 — Executive Summary (if AI narrative available)
+    // PAGE 2 — Executive Summary + Data Overview Table
     // ═══════════════════════════════════════════════════════════
-    if (hasNarrative) {
-        onProgress?.('Writing executive summary…');
-        pdf.addPage();
-        pageNum.val += 1;
-        let y = MARGIN;
+    onProgress?.('Building summary and data overview…');
+    pdf.addPage();
+    pageNum.val += 1;
+    let y = MARGIN;
 
-        // Section header
+    // Executive Summary
+    if (hasNarrative) {
         pdf.setFillColor(ACCENT);
         pdf.rect(MARGIN, y, 3, 10, 'F');
         pdf.setFontSize(16);
         pdf.setTextColor(TEXT_PRIMARY);
         pdf.setFont('helvetica', 'bold');
         pdf.text('Executive Summary', MARGIN + 8, y + 8);
-        y += 20;
+        y += 18;
 
         pdf.setFontSize(10);
         pdf.setTextColor(TEXT_SECONDARY);
         pdf.setFont('helvetica', 'normal');
 
-        // Split paragraphs
         const paragraphs = narrative.executive_summary.split('\n').filter(p => p.trim());
         for (const para of paragraphs) {
-            y = ensureSpace(pdf, y, 30, pageNum);
+            y = ensureSpace(pdf, y, 20, pageNum);
             y = writeWrappedText(pdf, para.trim(), MARGIN, y, CONTENT_W, 4.5);
-            y += 4;
+            y += 3;
         }
-
-        addPageNumber(pdf, pageNum.val);
     }
 
+    // Data Overview Table
+    y = ensureSpace(pdf, y, 35, pageNum);
+    y += 6;
+    
+    pdf.setFillColor(ACCENT);
+    pdf.rect(MARGIN, y, 3, 10, 'F');
+    pdf.setFontSize(14);
+    pdf.setTextColor(TEXT_PRIMARY);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Dataset Overview', MARGIN + 8, y + 8);
+    y += 18;
+
+    // Column Statistics Table
+    const colMeta = data.column_meta || {};
+    const colNames = Object.keys(colMeta);
+    
+    pdf.setFontSize(8);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFillColor('#f3f4f6');
+    const headerH = 6;
+    pdf.rect(MARGIN, y, CONTENT_W, headerH, 'F');
+    pdf.setTextColor(TEXT_PRIMARY);
+    pdf.text('Column Name', MARGIN + 2, y + 4);
+    pdf.text('Type', MARGIN + 60, y + 4);
+    pdf.text('Statistics', MARGIN + 95, y + 4);
+    y += headerH + 1;
+
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7);
+    pdf.setTextColor(TEXT_SECONDARY);
+    
+    const maxRowsInTable = Math.min(colNames.length, 15);
+    for (let i = 0; i < maxRowsInTable; i++) {
+        y = ensureSpace(pdf, y, 6, pageNum);
+        
+        const colName = colNames[i];
+        const colInfo = colMeta[colName];
+        const colType = colInfo?.type || 'unknown';
+        
+        let stats = '';
+        if (colType === 'numeric') {
+            const min = colInfo.min != null ? (typeof colInfo.min === 'number' ? colInfo.min.toFixed(1) : colInfo.min) : '—';
+            const max = colInfo.max != null ? (typeof colInfo.max === 'number' ? colInfo.max.toFixed(1) : colInfo.max) : '—';
+            stats = `[${min}..${max}]`;
+        } else if (colType === 'categorical') {
+            stats = `${colInfo.unique_count || '?'} unique`;
+        }
+        if (colInfo?.null_count > 0) {
+            stats += ` | ${colInfo.null_count} nulls`;
+        }
+        
+        pdf.text(colName.substring(0, 20), MARGIN + 2, y + 3);
+        pdf.text(colType, MARGIN + 60, y + 3);
+        pdf.text(stats.substring(0, 30), MARGIN + 95, y + 3);
+        y += 5;
+    }
+
+    if (colNames.length > maxRowsInTable) {
+        pdf.setFontSize(7);
+        pdf.setTextColor(TEXT_MUTED);
+        pdf.setFont('helvetica', 'italic');
+        pdf.text(`+ ${colNames.length - maxRowsInTable} more columns`, MARGIN, y + 2);
+    }
+
+    addPageNumber(pdf, pageNum.val);
+
     // ═══════════════════════════════════════════════════════════
-    // PAGES 3+ — Charts (one per page)
-    // ═══════════════════════════════════════════════════════════
+    // PAGE 3+ — Charts (one per page)
+    // ═════════════════════════════════════════════════════════════
     onProgress?.('Capturing charts…');
 
     const plotlyElements = document.querySelectorAll('.js-plotly-plot');
@@ -355,9 +425,10 @@ export async function generateReport(
     }
 
     // ═══════════════════════════════════════════════════════════
-    // KNOWLEDGE GRAPH PAGE (if SVG exists in DOM)
+    // KNOWLEDGE GRAPH PAGE (if SVG exists in DOM and captures successfully)
     // ═══════════════════════════════════════════════════════════
     const kgSvg = document.querySelector('svg[viewBox]');
+    let kgCaptureSuccess = false;
     if (kgSvg) {
         try {
             onProgress?.('Capturing knowledge graph…');
@@ -366,100 +437,41 @@ export async function generateReport(
                 const canvas = await html2canvas(kgContainer as HTMLElement, {
                     backgroundColor: '#ffffff', scale: 2, useCORS: true
                 });
-                const imgData = canvas.toDataURL('image/png');
+                
+                // Only add page if canvas has meaningful content
+                if (canvas.width > 50 && canvas.height > 50) {
+                    const imgData = canvas.toDataURL('image/png');
 
-                pdf.addPage();
-                pageNum.val += 1;
-                let y = MARGIN;
+                    pdf.addPage();
+                    pageNum.val += 1;
+                    let y = MARGIN;
 
-                pdf.setFillColor(ACCENT);
-                pdf.rect(MARGIN, y, 3, 10, 'F');
-                pdf.setFontSize(16);
-                pdf.setTextColor(TEXT_PRIMARY);
-                pdf.setFont('helvetica', 'bold');
-                pdf.text('Knowledge Graph', MARGIN + 8, y + 8);
-                y += 18;
+                    pdf.setFillColor(ACCENT);
+                    pdf.rect(MARGIN, y, 3, 10, 'F');
+                    pdf.setFontSize(16);
+                    pdf.setTextColor(TEXT_PRIMARY);
+                    pdf.setFont('helvetica', 'bold');
+                    pdf.text('Knowledge Graph', MARGIN + 8, y + 8);
+                    y += 18;
 
-                const imgW = CONTENT_W;
-                const imgH = (canvas.height / canvas.width) * imgW;
-                pdf.addImage(imgData, 'PNG', MARGIN, y, imgW, Math.min(imgH, 180));
+                    const imgW = CONTENT_W;
+                    const imgH = (canvas.height / canvas.width) * imgW;
+                    pdf.addImage(imgData, 'PNG', MARGIN, y, imgW, Math.min(imgH, 180));
 
-                addPageNumber(pdf, pageNum.val);
+                    addPageNumber(pdf, pageNum.val);
+                    kgCaptureSuccess = true;
+                }
             }
-        } catch {
-            // KG capture failed — skip silently
+        } catch (e) {
+            // KG capture failed — skip silently, don't create blank page
+            console.warn('Knowledge graph capture failed:', e);
         }
     }
 
     // ═══════════════════════════════════════════════════════════
     // DATA SAMPLE TABLE (first 10 rows)
     // ═══════════════════════════════════════════════════════════
-    if (data.original_data?.length > 0) {
-        onProgress?.('Building data sample table…');
-        pdf.addPage();
-        pageNum.val += 1;
-        let y = MARGIN;
-
-        pdf.setFillColor(ACCENT);
-        pdf.rect(MARGIN, y, 3, 10, 'F');
-        pdf.setFontSize(16);
-        pdf.setTextColor(TEXT_PRIMARY);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text('Data Sample', MARGIN + 8, y + 8);
-        y += 14;
-
-        pdf.setFontSize(8);
-        pdf.setTextColor(TEXT_MUTED);
-        pdf.setFont('helvetica', 'normal');
-        pdf.text(`First 10 rows of ${data.original_data.length.toLocaleString()} total rows`, MARGIN + 8, y + 2);
-        y += 10;
-
-        const rows = data.original_data.slice(0, 10);
-        const cols = Object.keys(rows[0] || {});
-        const maxCols = Math.min(cols.length, 8); // limit columns to fit
-        const visibleCols = cols.slice(0, maxCols);
-        const colW = CONTENT_W / maxCols;
-
-        // Header
-        pdf.setFillColor('#f3f4f6');
-        pdf.rect(MARGIN, y, CONTENT_W, 7, 'F');
-        pdf.setFontSize(6.5);
-        pdf.setTextColor(TEXT_PRIMARY);
-        pdf.setFont('helvetica', 'bold');
-        for (let ci = 0; ci < visibleCols.length; ci++) {
-            const label = visibleCols[ci].length > 12 ? visibleCols[ci].slice(0, 11) + '…' : visibleCols[ci];
-            pdf.text(label, MARGIN + ci * colW + 2, y + 5);
-        }
-        y += 8;
-
-        // Rows
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(6.5);
-        for (const row of rows) {
-            y = ensureSpace(pdf, y, 7, pageNum);
-            pdf.setDrawColor(DIVIDER);
-            pdf.line(MARGIN, y, PAGE_W - MARGIN, y);
-            y += 1;
-
-            for (let ci = 0; ci < visibleCols.length; ci++) {
-                const val = row[visibleCols[ci]];
-                const display = val != null ? String(val).slice(0, 18) : '—';
-                pdf.setTextColor(typeof val === 'number' ? TEXT_PRIMARY : TEXT_SECONDARY);
-                pdf.text(display, MARGIN + ci * colW + 2, y + 4);
-            }
-            y += 6;
-        }
-
-        if (cols.length > maxCols) {
-            y += 4;
-            pdf.setFontSize(7);
-            pdf.setTextColor(TEXT_MUTED);
-            pdf.setFont('helvetica', 'italic');
-            pdf.text(`+ ${cols.length - maxCols} more columns not shown`, MARGIN, y);
-        }
-
-        addPageNumber(pdf, pageNum.val);
-    }
+    // REMOVED: Data Sample page — statistics now shown on page 2
 
     // ═══════════════════════════════════════════════════════════
     // Save
