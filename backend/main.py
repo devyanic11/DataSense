@@ -101,6 +101,21 @@ async def upload_file(file: UploadFile = File(...)):
                 fig_json = Visualizer.generate_box_plot(df, config.get("title", ""), config.get("x_key"), config.get("y_key"))
             elif chart_type == "Heatmap":
                 fig_json = Visualizer.generate_heatmap(df, config.get("title", ""),config.get("columns"))
+            elif chart_type == "Treemap":
+                fig_json = Visualizer.generate_treemap(df, config.get("title", ""), config.get("path_cols", []), config.get("value_key", ""))
+            elif chart_type == "Funnel":
+                fig_json = Visualizer.generate_funnel(df, config.get("title", ""), config.get("stage_col"), config.get("value_key"))
+            elif chart_type == "Violin Plot":
+                fig_json = Visualizer.generate_violin(df, config.get("title", ""), config.get("x_key"), config.get("y_key"))
+            elif chart_type == "Bubble Chart":
+                fig_json = Visualizer.generate_bubble_chart(df, config.get("title", ""), config.get("x_key"), config.get("y_key"), config.get("size_key"), config.get("color_col"))
+            elif chart_type == "Waterfall Chart":
+                fig_json = Visualizer.generate_waterfall_chart(df, config.get("title", ""), config.get("x_key"), config.get("y_key"))
+            elif chart_type == "Sunburst Chart":
+                fig_json = Visualizer.generate_sunburst(df, config.get("title", ""), config.get("path_cols", []), config.get("value_key", ""))
+            elif chart_type == "Donut Chart":
+                fig_json = Visualizer.generate_donut(df, config.get("title", ""), config.get("label_key"), config.get("value_key"))
+            
 
             if fig_json:
                 plot_definitions.append({
@@ -341,6 +356,21 @@ def _process_chat_response(response_text: str, request: ChatRequest) -> dict:
                     fig_json = Visualizer.generate_box_plot(df, config.get("title", ""), config.get("x_key"), config.get("y_keys", []))
                 elif chart_type == "Heatmap":
                     fig_json = Visualizer.generate_heatmap(df, config.get("title", ""), config.get("columns"))
+                elif chart_type == "Treemap":
+                    fig_json = Visualizer.generate_treemap(df, config.get("title", ""), config.get("path_cols", []), config.get("value_key", ""))
+                elif chart_type == "Funnel":
+                    fig_json = Visualizer.generate_funnel(df, config.get("title", ""), config.get("stage_col"), config.get("value_key"))
+                elif chart_type == "Violin Plot":
+                    fig_json = Visualizer.generate_violin(df, config.get("title", ""), config.get("x_key"), config.get("y_key"))
+                elif chart_type == "Bubble Chart":
+                    fig_json = Visualizer.generate_bubble_chart(df, config.get("title", ""), config.get("x_key"), config.get("y_key"), config.get("size_key"), config.get("color_col"))
+                elif chart_type == "Waterfall Chart":
+                    fig_json = Visualizer.generate_waterfall_chart(df, config.get("title", ""), config.get("x_key"), config.get("y_key"))
+                elif chart_type == "Sunburst Chart":
+                    fig_json = Visualizer.generate_sunburst(df, config.get("title", ""), config.get("path_cols", []), config.get("value_key", ""))
+                elif chart_type == "Donut Chart":
+                    fig_json = Visualizer.generate_donut(df, config.get("title", ""), config.get("label_key"), config.get("value_key"))
+
 
                 if fig_json:
                     plotly_json = fig_json
@@ -434,6 +464,9 @@ class RenderRequest(BaseModel):
     nbins:       Optional[int] = 30
     columns:     Optional[List[str]] = None
     color:       Optional[str] = None
+    path_cols:  Optional[List[str]] = None # For treemap/sunburst
+    stage_col: Optional[str] = None # For funnel stages
+    size_key:    Optional[str] = None # For bubble chart
 
 
 @app.post("/api/render")
@@ -454,6 +487,13 @@ def render_chart(req: RenderRequest):
         "Histogram":    lambda: Visualizer.generate_histogram(df, req.title, req.x_key, req.nbins or 30),
         "Box Plot":     lambda: Visualizer.generate_box_plot(df, req.title, req.x_key, (req.y_keys[0] if req.y_keys else None)),
         "Heatmap":      lambda: Visualizer.generate_heatmap(df, req.title, req.columns),
+        "Treemap":      lambda: Visualizer.generate_treemap(df, req.title, req.path_cols or [], req.value_key or ""),
+        "Funnel":       lambda: Visualizer.generate_funnel(df, req.title, req.stage_col, req.value_key),
+        "Violin Plot":  lambda: Visualizer.generate_violin(df, req.title, req.x_key, (req.y_keys[0] if req.y_keys else None)),
+        "Bubble Chart": lambda: Visualizer.generate_bubble_chart(df, req.title, req.x_key, (req.y_keys[0] if req.y_keys else None), req.size_key, req.color),
+        "Waterfall Chart": lambda: Visualizer.generate_waterfall_chart(df, req.title, req.x_key, (req.y_keys[0] if req.y_keys else None)),
+        "Sunburst Chart": lambda: Visualizer.generate_sunburst(df, req.title, req.path_cols or [], req.value_key or ""),
+        "Donut Chart": lambda: Visualizer.generate_donut(df, req.title, req.label_key, req.value_key)
     }
 
     handler = CHART_DISPATCH.get(req.chart_type)
