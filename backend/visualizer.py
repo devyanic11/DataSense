@@ -107,7 +107,7 @@ class Visualizer:
         except Exception as e:
             return json.dumps({"error": f"Scatter Plot Error: {str(e)}"})
 
-      #----------------------------------------------------------------
+    #----------------------------------------------------------------
 
     @staticmethod
     def generate_histogram(df: pd.DataFrame, title: str, x_col: str, nbins: int = 30) -> str:
