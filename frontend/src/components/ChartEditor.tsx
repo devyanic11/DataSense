@@ -345,19 +345,23 @@ export default function ChartEditor({
     setIsPending(true);
     setError(null);
     try {
-      const res = await axios.post("http://localhost:8000/api/render", {
+      // Build simple request payload
+      const payload: any = {
         file_id: fileId,
         chart_type: cfg.type,
-        title: cfg.title,
-        x_key: cfg.x_key,
-        y_keys: cfg.y_keys,
-        label_key: cfg.label_key,
-        value_key: cfg.value_key,
-        tooltip_key: cfg.tooltip_key,
-        nbins: cfg.nbins,
-        columns: cfg.columns,
-        color: cfg.color,
-      });
+        title: cfg.title || "Untitled Chart",
+      };
+      
+      if (cfg.x_key) payload.x_key = cfg.x_key;
+      if (cfg.y_keys && cfg.y_keys.length > 0) payload.y_keys = cfg.y_keys;
+      if (cfg.label_key) payload.label_key = cfg.label_key;
+      if (cfg.value_key) payload.value_key = cfg.value_key;
+      if (cfg.tooltip_key) payload.tooltip_key = cfg.tooltip_key;
+      if (cfg.nbins) payload.nbins = cfg.nbins;
+      if (cfg.columns) payload.columns = cfg.columns;
+      if (cfg.color) payload.color = cfg.color;
+
+      const res = await axios.post("http://localhost:8000/api/render", payload);
       onApply(res.data.plotly_json, cfg);
       setHasChanges(false);
     } catch (e: any) {
@@ -598,6 +602,9 @@ export default function ChartEditor({
             )}
           </div>
         </div>
+
+        {/* Date Range Filter Section */}
+        {/* Removed - date filtering is now at Dashboard level for simplicity */}
 
         <ColourPicker
           value={cfg.color || COLOUR_SWATCHES[0]}
