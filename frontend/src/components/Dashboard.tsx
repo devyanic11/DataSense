@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import {
     Activity, PieChart as PieChartIcon, BarChart2, TrendingUp,
-    Map as MapIcon, Network, Loader2, Plus, Info, Pencil, Download
+    Map as MapIcon, Network, Loader2, Plus, Info, Pencil, Download, LayoutGrid, Filter, CircleDot, TrendingDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
@@ -287,11 +287,15 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
 
     const getIcon = (type: string, size = 14) => {
         const t = type.toLowerCase();
-        if (t.includes('pie')) return <PieChartIcon size={size} />;
+        if (t.includes('pie') || t.includes('donut')) return <PieChartIcon size={size} />;
         if (t.includes('bar')) return <BarChart2 size={size} />;
         if (t.includes('line') || t.includes('trend') || t.includes('area')) return <TrendingUp size={size} />;
-        if (t.includes('scatter') || t.includes('plot')) return <Activity size={size} />;
+        if (t.includes('scatter') || t.includes('plot') || t.includes('violin') || t.includes('box')) return <Activity size={size} />;
         if (t.includes('map') || t.includes('geo')) return <MapIcon size={size} />;
+        if (t.includes('treemap') || t.includes('sunburst')) return <LayoutGrid size={size} />;
+        if (t.includes("funnel")) return <Filter size={size} />;
+        if (t.includes("bubble")) return <CircleDot size={size} />;
+        if (t.includes("waterfall")) return <TrendingDown size={size} />;
         if (t.includes('graph') || t.includes('network') || t.includes('knowledge')) return <Network size={size} />;
         return <Activity size={size} />;
     };
@@ -411,6 +415,21 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
             if (graphNodes.length === 0) return (<div className="w-full h-full flex flex-col items-center justify-center gap-3" style={{ color: 'var(--text-muted)' }}>
                 <Network size={56} style={{ opacity: 0.3 }} /><p style={{ fontSize: 13 }}>No graph data could be extracted.</p></div>);
             return <InteractiveKnowledgeGraph nodes={graphNodes} edges={graphEdges} />;
+        }
+
+        // ── Named fallbacks for new chart types (shown when plotly_json is absent/broken) ──
+        if (type.includes('box') || type.includes('violin') || type.includes('waterfall') ||
+            type.includes('bubble') || type.includes('histogram') ||
+            type.includes('heatmap') || type.includes('treemap') ||
+            type.includes('sunburst') || type.includes('funnel') ||
+            type.includes('donut')) {
+            return (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                    <Info size={40} style={{ opacity: 0.3 }} />
+                    <p style={{ fontSize: 13 }}>Chart not yet rendered.</p>
+                    <p style={{ fontSize: 12 }}>Open the editor (✏️) and press Apply to generate it.</p>
+                </div>
+            );
         }
 
         // Fallback
