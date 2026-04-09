@@ -18,9 +18,6 @@ export type ChartConfig = {
   value_key?: string;
   y_key?: string;
   tooltip_key?: string;
-  path_cols?: string[];
-  stage_col?: string;
-  size_key?: string;
   isBlank?: boolean;
 };
 

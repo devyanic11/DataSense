@@ -2,7 +2,6 @@ import { useState, useCallback } from "react";
 import {
   BarChart2,
   TrendingUp,
-  TrendingDown,
   PieChart as PieIcon,
   Activity,
   Layers,
@@ -14,9 +13,6 @@ import {
   Plus,
   Trash2,
   Pencil,
-  LayoutGrid,
-  CircleDot,
-  Filter,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import axios from "axios";
@@ -27,17 +23,12 @@ export interface EditorConfig {
   title: string;
   x_key?: string;
   y_keys?: string[];
-  y_key?: string;  // Box Plot, Violin, Bubble, Waterfall — single numeric
   label_key?: string;
   value_key?: string;
   tooltip_key?: string;
   nbins?: number;
   columns?: string[];
-  path_cols?: string[];
-  stage_col?: string;
-  size_key?: string;
-  color_col?: string; // bubble extra
-  color?: string; // editor color swatch
+  color?: string;
 }
 
 export type ColumnMeta = Record<
@@ -59,13 +50,6 @@ const CHART_TYPES = [
   { id: "Histogram", icon: Layers, label: "Hist" },
   { id: "Box Plot", icon: Box, label: "Box" },
   { id: "Heatmap", icon: Grid3x3, label: "Heat" },
-  { id: "Treemap", icon: LayoutGrid, label: "Tree" },
-  { id: "Funnel", icon: Filter, label: "Funnel" },
-  { id: "Violin Plot", icon: Activity, label: "Violin" },
-  { id: "Waterfall Chart", icon: TrendingDown, label: "Waterfall" },
-  { id: "Bubble Chart", icon: CircleDot, label: "Bubble" },
-  { id: "Sunburst Chart", icon: LayoutGrid, label: "Sun" },
-  { id: "Donut Chart", icon: PieIcon, label: "Donut" },
 ];
 
 const COLOUR_SWATCHES = [
@@ -91,64 +75,31 @@ export function autoSuggestAxes(
   );
   const allCols = Object.keys(columnMeta);
   switch (type) {
-    // ── y_keys (plural array) ────────────────────────────────
     case "Bar Chart":
     case "Line Chart":
       return {
         x_key: categoricalCols[0] ?? allCols[0],
         y_keys: numericCols.slice(0, 1),
       };
+    case "Pie Chart":
+      return {
+        label_key: categoricalCols[0] ?? allCols[0],
+        value_key: numericCols[0],
+      };
     case "Scatter Plot":
       return {
         x_key: numericCols[0],
         y_keys: [numericCols[1] ?? numericCols[0]],
       };
-    // ── y_key (singular) — matches backend exactly ───────────
-    case "Box Plot":
-    case "Violin Plot":
-      return {
-        x_key: categoricalCols[0] ?? allCols[0],
-        y_key: numericCols[0],
-      };
-    case "Waterfall Chart":
-      // x = category/stage labels, y_key = signed numeric values (+/-)
-      return {
-        x_key: categoricalCols[0] ?? allCols[0],
-        y_key: numericCols[0],
-      };
-    case "Bubble Chart":
-      return {
-        x_key: numericCols[0],
-        y_key: numericCols[1] ?? numericCols[0],
-        size_key: numericCols[2] ?? numericCols[0],
-      };
-    // ── label/value ──────────────────────────────────────────
-    case "Pie Chart":
-    case "Donut Chart":
-      return {
-        label_key: categoricalCols[0] ?? allCols[0],
-        value_key: numericCols[0],
-      };
-    // ── path/value ───────────────────────────────────────────
-    case "Treemap":
-    case "Sunburst Chart":
-      return {
-        path_cols: categoricalCols.slice(0, 2),
-        value_key: numericCols[0],
-      };
-    // ── stage/value ──────────────────────────────────────────
-    case "Funnel":
-      return {
-        stage_col: categoricalCols[0] ?? allCols[0],
-        value_key: numericCols[0],
-      };
-    // ── columns subset ───────────────────────────────────────
-    case "Heatmap":
-      return { columns: numericCols.slice(0, 10) };
-    // ── single numeric ───────────────────────────────────────
     case "Histogram":
       return { x_key: numericCols[0] };
-
+    case "Box Plot":
+      return {
+        x_key: categoricalCols[0] ?? allCols[0],
+        y_keys: [numericCols[0]],
+      };
+    case "Heatmap":
+      return { columns: numericCols.slice(0, 10) };
     default:
       return {};
   }
@@ -159,72 +110,27 @@ export function validateConfig(
   columnMeta: ColumnMeta,
 ): string | null {
   const cols = Object.keys(columnMeta);
-  // ── Pie + Donut — label + value ─────────────────────────────
-  if (config.type === "Pie Chart" || config.type === "Donut Chart") {
+  if (config.type === "Pie Chart") {
     if (!config.label_key || !cols.includes(config.label_key))
       return "Select a label column.";
     if (!config.value_key || !cols.includes(config.value_key))
       return "Select a value column.";
     return null;
   }
-
-  // ── Heatmap — no column validation needed ───────────────────
   if (config.type === "Heatmap") return null;
-  // ── Treemap + Sunburst — path_cols + value_key ──────────────
-  if (config.type === "Treemap" || config.type === "Sunburst Chart") {
-    if (!config.path_cols?.length) return "Select at least one path column.";
-    if (!config.value_key || !cols.includes(config.value_key))
-      return "Select a value column.";
-    return null;
-  }
-  // ── Funnel — stage_col + value_key ──────────────────────────
-  if (config.type === "Funnel") {
-    if (!config.stage_col || !cols.includes(config.stage_col))
-      return "Select a stage column.";
-    if (!config.value_key || !cols.includes(config.value_key))
-      return "Select a value column.";
-    return null;
-  }
-  // ── Bubble — x_key + y_key + size_key ───────────────────────
-  if (config.type === "Bubble Chart") {
-    if (!config.x_key || !cols.includes(config.x_key))
-      return "Select an X axis column.";
-    if (!config.y_key || !cols.includes(config.y_key))
-      return "Select a Y axis column.";
-    if (!config.size_key || !cols.includes(config.size_key))
-      return "Select a size column.";
-    return null;
-  }
-  // ── Box Plot + Violin — x_key + y_key ───────────────────────
-  if (config.type === "Box Plot" || config.type === "Violin Plot") {
-    if (!config.x_key || !cols.includes(config.x_key))
-      return "Select a grouping column.";
-    if (!config.y_key || !cols.includes(config.y_key))
-      return "Select a value column.";
-    return null;
-  }
-  // ── Waterfall — x_key + y_key (signed values allowed) ───────
-  if (config.type === "Waterfall Chart") {
-    if (!config.x_key || !cols.includes(config.x_key))
-      return "Select a stage/category column.";
-    if (!config.y_key || !cols.includes(config.y_key))
-      return "Select a value column (+/- supported).";
-    return null;
-  }
-  // ── Histogram — single numeric x_key ────────────────────────
-  if (config.type === "Histogram") {
-    if (!config.x_key || !cols.includes(config.x_key))
-      return "Select a column.";
-    if (columnMeta[config.x_key]?.type !== "numeric")
-      return "Histogram requires a numeric column.";
-    return null;
-  }
-  // ── Bar + Line + Scatter — x_key + y_keys array ─────────────
   if (!config.x_key || !cols.includes(config.x_key))
     return "Select a valid X axis column.";
-  if (["Bar Chart", "Line Chart", "Scatter Plot"].includes(config.type)) {
+  if (
+    ["Bar Chart", "Line Chart", "Scatter Plot", "Box Plot"].includes(
+      config.type,
+    )
+  ) {
     if (!config.y_keys?.length || !cols.includes(config.y_keys[0]))
       return "Select at least one Y axis column.";
+  }
+  if (config.type === "Histogram") {
+    if (!config.x_key || columnMeta[config.x_key]?.type !== "numeric")
+      return "Histogram requires a numeric column.";
   }
   return null;
 }
@@ -351,13 +257,11 @@ function ColourPicker({
             key={hex}
             onClick={() => onChange(hex)}
             className={`w-7 h-7 rounded-full transition-all ${value === hex ? "ring-2 ring-offset-2 scale-110" : "hover:scale-110"}`}
-            style={
-              {
-                backgroundColor: hex,
-                ringColor: "var(--accent)",
-                ringOffsetColor: "var(--bg-surface)",
-              } as React.CSSProperties
-            }
+            style={{
+              backgroundColor: hex,
+              ringColor: "var(--accent)",
+              ringOffsetColor: "var(--bg-surface)",
+            }}
             title={hex}
           />
         ))}
@@ -446,17 +350,12 @@ export default function ChartEditor({
         chart_type: cfg.type,
         title: cfg.title,
         x_key: cfg.x_key,
-        y_keys: cfg.y_keys, // x/y array (Bar, Line, Scatter)
-        y_key: cfg.y_key, // single y (Box, Violin, Waterfall, Bubble)
+        y_keys: cfg.y_keys,
         label_key: cfg.label_key,
-        value_key: cfg.value_key, // Pie / Donut
-        tooltip_key: cfg.tooltip_key, // Scatter extra
-        nbins: cfg.nbins, // Histogram bins
-        columns: cfg.columns, // Heatmap subset
-        path_cols: cfg.path_cols, // Treemap/Sunburst paths
-        stage_col: cfg.stage_col, // Funnel stage column
-        size_key: cfg.size_key, // Bubble size
-        color_col: cfg.color_col, // Bubble color
+        value_key: cfg.value_key,
+        tooltip_key: cfg.tooltip_key,
+        nbins: cfg.nbins,
+        columns: cfg.columns,
         color: cfg.color,
       });
       onApply(res.data.plotly_json, cfg);
@@ -480,16 +379,9 @@ export default function ChartEditor({
         title: aiConfig.title,
         x_key: aiConfig.x_key,
         y_keys: aiConfig.y_keys,
-        y_key: aiConfig.y_key,
         label_key: aiConfig.label_key,
         value_key: aiConfig.value_key,
         tooltip_key: aiConfig.tooltip_key,
-        nbins: aiConfig.nbins,
-        columns: aiConfig.columns,
-        path_cols: aiConfig.path_cols,
-        stage_col: aiConfig.stage_col,
-        size_key: aiConfig.size_key,
-        color_col: aiConfig.color_col,
       });
       onApply(res.data.plotly_json, aiConfig);
     } catch {
@@ -498,36 +390,15 @@ export default function ChartEditor({
       setIsPending(false);
     }
   };
-  // ── Field visibility flags ────────────────────────────────
-  const showXY = ["Bar Chart", "Line Chart", "Scatter Plot"].includes(cfg.type);
-  const showYSingular = ["Box Plot", "Violin Plot", "Waterfall Chart"].includes(
-    cfg.type,
-  );
+
+  const showXY = [
+    "Bar Chart",
+    "Line Chart",
+    "Scatter Plot",
+    "Box Plot",
+  ].includes(cfg.type);
   const showPie = cfg.type === "Pie Chart";
   const showHist = cfg.type === "Histogram";
-  const showBubble = cfg.type === "Bubble Chart";
-  const showDonut = cfg.type === "Donut Chart";
-  const showHeatmap = cfg.type === "Heatmap";
-  const showPath = ["Treemap", "Sunburst Chart"].includes(cfg.type);
-  const showFunnel = cfg.type === "Funnel";
-
-  // ── Heatmap: toggle a column in/out of the columns list ──
-  const toggleHeatmapCol = (col: string) => {
-    const current = cfg.columns || numericColumns;
-    const next = current.includes(col)
-      ? current.filter((c) => c !== col)
-      : [...current, col];
-    patch({ columns: next.length > 0 ? next : current });
-  };
-
-  // ── Path cols multi-select for Treemap / Sunburst ─────────
-  const togglePathCol = (col: string) => {
-    const current = cfg.path_cols || [];
-    const next = current.includes(col)
-      ? current.filter((c) => c !== col)
-      : [...current, col];
-    patch({ path_cols: next });
-  };
 
   return (
     <motion.div
@@ -600,17 +471,12 @@ export default function ChartEditor({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <TypePicker value={cfg.type} onChange={handleTypeChange} />
           <div className="space-y-2">
-            {/* ── Bar / Line / Scatter — x + y_keys array ── */}
             {showXY && (
               <>
                 <AxisSelect
                   label="X Axis"
                   value={cfg.x_key}
-                  options={
-                    ["Scatter Plot"].includes(cfg.type)
-                      ? numericColumns
-                      : allColumns
-                  }
+                  options={xOptions}
                   onChange={(v) => patch({ x_key: v })}
                   badge={colBadge}
                 />
@@ -656,143 +522,78 @@ export default function ChartEditor({
                       )}
                     </div>
                   ))}
-                   {(cfg.y_keys?.length || 0) < 3 && numericColumns.length > (cfg.y_keys?.length || 0) && (
-                    <button onClick={addYKey} className="flex items-center gap-1 text-xs mt-0.5"
-                      style={{ color: "var(--accent-text)" }}>
-                      <Plus size={12} /> Add series
-                    </button>
-                  )}
+                  {(cfg.y_keys?.length || 0) < 3 &&
+                    numericColumns.length > (cfg.y_keys?.length || 0) && (
+                      <button
+                        onClick={addYKey}
+                        className="flex items-center gap-1 text-xs mt-0.5"
+                        style={{ color: "var(--accent-text)" }}
+                      >
+                        <Plus size={12} /> Add series
+                      </button>
+                    )}
                 </div>
               </>
             )}
-              {/* ── Box / Violin / Waterfall — x + single y_key ── */}
-           {showYSingular && (
-              <>
-                <AxisSelect
-                  label={cfg.type === "Waterfall Chart" ? "Stage / Category (X)" : "Group Column (X)"}
-                  value={cfg.x_key} options={categoricalColumns.length ? categoricalColumns : allColumns}
-                  onChange={(v) => patch({ x_key: v })} badge={colBadge} />
-                <AxisSelect
-                  label={cfg.type === "Waterfall Chart" ? "Value Column (+/−)" : "Value Column (Y)"}
-                  value={cfg.y_key} options={yOptions}
-                  onChange={(v) => patch({ y_key: v })} badge={colBadge} />
-              </>
-            )}
-              {/* ── Pie / Donut — label + value keys ── */}
             {showPie && (
               <>
-                <AxisSelect label="Label Column" value={cfg.label_key}
-                  options={categoricalColumns.length ? categoricalColumns : allColumns}
-                  onChange={(v) => patch({ label_key: v })} badge={colBadge} />
-                <AxisSelect label="Value Column" value={cfg.value_key} options={yOptions}
-                  onChange={(v) => patch({ value_key: v })} badge={colBadge} />
+                <AxisSelect
+                  label="Label Column"
+                  value={cfg.label_key}
+                  options={
+                    categoricalColumns.length ? categoricalColumns : allColumns
+                  }
+                  onChange={(v) => patch({ label_key: v })}
+                  badge={colBadge}
+                />
+                <AxisSelect
+                  label="Value Column"
+                  value={cfg.value_key}
+                  options={yOptions}
+                  onChange={(v) => patch({ value_key: v })}
+                  badge={colBadge}
+                />
               </>
             )}
- 
-            {/* ── Donut Chart — label + value ── */}
-            {showDonut && (
-              <>
-                <AxisSelect label="Label Column" value={cfg.label_key}
-                  options={categoricalColumns.length ? categoricalColumns : allColumns}
-                  onChange={(v) => patch({ label_key: v })} badge={colBadge} />
-                <AxisSelect label="Value Column" value={cfg.value_key} options={yOptions}
-                  onChange={(v) => patch({ value_key: v })} badge={colBadge} />
-              </>
-            )}
-             {/* ── Bubble Chart — x + y_key + size_key ── */}
-            {showBubble && (
-              <>
-                <AxisSelect label="X Axis (numeric)" value={cfg.x_key} options={numericColumns}
-                  onChange={(v) => patch({ x_key: v })} badge={colBadge} />
-                <AxisSelect label="Y Axis (numeric)" value={cfg.y_key} options={numericColumns}
-                  onChange={(v) => patch({ y_key: v })} badge={colBadge} />
-                <AxisSelect label="Size Column (numeric)" value={cfg.size_key} options={numericColumns}
-                  onChange={(v) => patch({ size_key: v })} badge={colBadge} />
-                <AxisSelect label="Color Group (optional)" value={cfg.color_col ?? ""}
-                  options={["— none —", ...categoricalColumns]}
-                  onChange={(v) => patch({ color_col: v === "— none —" ? undefined : v })}
-                  badge={colBadge} />
-              </>
-            )}
-            {/* ── Histogram — x + nbins ── */}
             {showHist && (
               <>
-                <AxisSelect label="Column (numeric)" value={cfg.x_key} options={numericColumns}
-                  onChange={(v) => patch({ x_key: v })} badge={colBadge} />
+                <AxisSelect
+                  label="Column (numeric)"
+                  value={cfg.x_key}
+                  options={numericColumns}
+                  onChange={(v) => patch({ x_key: v })}
+                  badge={colBadge}
+                />
                 <div>
-                  <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em",
-                    textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>
+                  <p
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      color: "var(--text-muted)",
+                      marginBottom: 4,
+                    }}
+                  >
                     Bins
                   </p>
-                  <input type="number" min={5} max={200} value={cfg.nbins || 30}
-                    onChange={(e) => patch({ nbins: parseInt(e.target.value) || 30 })}
+                  <input
+                    type="number"
+                    min={5}
+                    max={200}
+                    value={cfg.nbins || 30}
+                    onChange={(e) =>
+                      patch({ nbins: parseInt(e.target.value) || 30 })
+                    }
                     className="w-24 rounded-lg text-sm outline-none transition"
-                    style={{ background: "var(--bg-inset)", border: "1px solid var(--border)",
-                      padding: "6px 10px", color: "var(--text-primary)" }} />
+                    style={{
+                      background: "var(--bg-inset)",
+                      border: "1px solid var(--border)",
+                      padding: "6px 10px",
+                      color: "var(--text-primary)",
+                    }}
+                  />
                 </div>
-              </>
-            )}
-             {/* ── Heatmap — toggle numeric columns ── */}
-            {showHeatmap && (
-              <div>
-                <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em",
-                  textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 6 }}>
-                  Numeric Columns (toggle)
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {numericColumns.map((col) => {
-                    const active = (cfg.columns ?? numericColumns).includes(col);
-                    return (
-                      <button key={col} onClick={() => toggleHeatmapCol(col)}
-                        className="px-2 py-1 rounded text-xs transition-all"
-                        style={{ background: active ? "var(--accent)" : "var(--bg-overlay)",
-                          color: active ? "white" : "var(--text-secondary)", border: "none" }}>
-                        {col}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            {/* ── Treemap / Sunburst — path_cols + value_key ── */}
-            {showPath && (
-              <>
-                <div>
-                  <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em",
-                    textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 6 }}>
-                    Hierarchy Path (ordered, categorical)
-                  </p>
-                  <div className="flex flex-wrap gap-1">
-                    {(categoricalColumns.length ? categoricalColumns : allColumns).map((col) => {
-                      const active = (cfg.path_cols || []).includes(col);
-                      return (
-                        <button key={col} onClick={() => togglePathCol(col)}
-                          className="px-2 py-1 rounded text-xs transition-all"
-                          style={{ background: active ? "var(--accent)" : "var(--bg-overlay)",
-                            color: active ? "white" : "var(--text-secondary)", border: "none" }}>
-                          {col}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {(cfg.path_cols || []).length > 0 && (
-                    <p style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
-                      Order: {(cfg.path_cols || []).join(" → ")}
-                    </p>
-                  )}
-                </div>
-                <AxisSelect label="Value Column (size)" value={cfg.value_key} options={yOptions}
-                  onChange={(v) => patch({ value_key: v })} badge={colBadge} />
-              </>
-            )}
-            {/* ── Funnel — stage_col + value_key ── */}
-            {showFunnel && (
-              <>
-                <AxisSelect label="Stage Column (dimension)" value={cfg.stage_col}
-                  options={categoricalColumns.length ? categoricalColumns : allColumns}
-                  onChange={(v) => patch({ stage_col: v })} badge={colBadge} />
-                <AxisSelect label="Value Column (metric)" value={cfg.value_key} options={yOptions}
-                  onChange={(v) => patch({ value_key: v })} badge={colBadge} />
               </>
             )}
           </div>
@@ -805,9 +606,17 @@ export default function ChartEditor({
 
         <AnimatePresence>
           {error && (
-            <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
               className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
-              style={{ background: "var(--danger-dim)", color: "var(--danger)", border: "1px solid rgba(248,113,113,0.2)" }}>
+              style={{
+                background: "var(--danger-dim)",
+                color: "var(--danger)",
+                border: "1px solid rgba(248,113,113,0.2)",
+              }}
+            >
               <AlertCircle size={14} /> {error}
             </motion.div>
           )}
