@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { InsightData, ChartConfig, ChartRequest } from '../App';
 import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
@@ -6,13 +6,14 @@ import {
 } from 'recharts';
 import {
     Activity, PieChart as PieChartIcon, BarChart2, TrendingUp,
-    Map as MapIcon, Network, Loader2, Plus, Info, Pencil, Download
+    Map as MapIcon, Network, Loader2, Plus, Info, Pencil, Download, Settings
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import Plot from 'react-plotly.js';
 import ForceGraph2D from 'react-force-graph-2d';
 import ChartEditor from './ChartEditor';
+import DataAnalysis from './DataAnalysis';
 import type { EditorConfig } from './ChartEditor';
 
 interface DashboardProps {
@@ -39,7 +40,7 @@ const axisStyle = {
     tick: { fill: 'var(--text-muted)', fontSize: 11, fontFamily: 'DM Sans' }
 };
 
-function prepareRows(raw: any[], limit = 30): any[] {
+function prepareRows(raw: any[], limit = 50): any[] {
     return raw.slice(0, limit).map(row => {
         const cleaned: any = {};
         for (const [k, v] of Object.entries(row)) {
@@ -212,6 +213,96 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
     const [chartTabs, setChartTabs] = useState<ChartConfig[]>(initialTabs);
     const [selectedIdx, setSelectedIdx] = useState(0);
     const [isEditing, setIsEditing] = useState(false);
+    const [showDataAnalysis, setShowDataAnalysis] = useState(false);
+    
+    // Simple date filtering state
+    const [filterStartDate, setFilterStartDate] = useState<string | null>(null);
+    const [filterEndDate, setFilterEndDate] = useState<string | null>(null);
+    const [filteredData, setFilteredData] = useState<any[]>(data.original_data || []);
+
+    // Find date column (check both name and type from metadata)
+    const dateColumn = useMemo(() => {
+        if (!data.column_meta) return null;
+        
+        // First check if any column is marked as date/time type in metadata
+        for (const [colName, colInfo] of Object.entries(data.column_meta)) {
+            if (colInfo?.type === 'date' || colInfo?.type === 'datetime' || colInfo?.type === 'timestamp') {
+                return colName;
+            }
+        }
+        
+        // Fallback: check column names for explicit date/time keywords (exclude "year" as it's usually just a number)
+        if (!data.original_data || data.original_data.length === 0) return null;
+        const row = data.original_data[0];
+        const keys = Object.keys(row);
+        const dateCol = keys.find(k => {
+            const lower = k.toLowerCase();
+            // Match "date" or "time" explicitly, but exclude "_year" or "disc_year" type columns
+            return (lower.includes('date') || lower.includes('time')) && !lower.includes('year');
+        });
+        return dateCol || null;
+    }, [data.original_data, data.column_meta]);
+
+    // Helper: Parse various date formats (memoized so it's stable)
+    const parseDate = useCallback((val: any): number | null => {
+        if (!val) return null;
+        
+        // If it's already a number, assume it's a timestamp (ms) or Excel date
+        const num = Number(val);
+        if (!isNaN(num)) {
+            // If it's between 1970-2100 range, likely a year
+            if (num > 1900 && num < 2100) {
+                return new Date(`${num}-01-01`).getTime();
+            }
+            // If it's a large number, likely milliseconds timestamp
+            if (num > 1000000000000) {
+                return num;
+            }
+            // If it's smaller, could be seconds timestamp
+            if (num > 1000000000) {
+                return num * 1000;
+            }
+            // Otherwise treat as year
+            return new Date(`${num}-01-01`).getTime();
+        }
+        
+        // Try parsing as string date
+        const d = new Date(String(val));
+        return isNaN(d.getTime()) ? null : d.getTime();
+    }, []);
+
+    // Simple date filter function - NOW PROPERLY CONNECTED
+    const applyDateFilter = useCallback(() => {
+        if (!filterStartDate || !filterEndDate || !dateColumn) {
+            console.log("[Filter] ❌ No dates or date column selected", { filterStartDate, filterEndDate, dateColumn });
+            setFilteredData(data.original_data || []);
+            return;
+        }
+        
+        const start = new Date(filterStartDate).getTime();
+        const end = new Date(filterEndDate).getTime() + 86400000;
+        
+        console.log(`[Filter] 🔍 Filtering on column: "${dateColumn}"`, { start: new Date(start), end: new Date(end) });
+        
+        const filtered = (data.original_data || []).filter(row => {
+            const val = row[dateColumn];
+            const rowTime = parseDate(val);
+            if (rowTime === null) {
+                return false;
+            }
+            const matches = rowTime >= start && rowTime <= end;
+            return matches;
+        });
+        
+        console.log(`[Filter] ✅ Date filter applied: ${filterStartDate} to ${filterEndDate} | Matches: ${filtered.length} of ${data.original_data?.length || 0} rows`, filtered.slice(0, 3));
+        setFilteredData(filtered);
+    }, [filterStartDate, filterEndDate, dateColumn, data.original_data, parseDate]);
+
+    const clearFilter = useCallback(() => {
+        setFilterStartDate(null);
+        setFilterEndDate(null);
+        setFilteredData(data.original_data || []);
+    }, [data.original_data]);
 
     const downloadChart = () => {
         const activeChart = chartTabs[selectedIdx];
@@ -271,7 +362,7 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
 
     const selectedConfig = chartTabs[selectedIdx] || chartTabs[0];
     const chartType = selectedConfig?.type?.toLowerCase() || '';
-    const rawRows = useMemo(() => prepareRows(data.original_data || []), [data.original_data]);
+    const rawRows = useMemo(() => prepareRows(filteredData || []), [filteredData]);
     const kpis = useMemo(() => generateKPIs(data.column_meta || {}, data.original_data || []), [data.column_meta, data.original_data]);
 
     useEffect(() => {
@@ -297,6 +388,39 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
     };
 
     // ─── CHART RENDERER ──────────────────────────────────────
+    // Auto-generate column mappings when AI didn't provide them
+    const autoGenerateMapping = useCallback((chartType: string) => {
+        const keys = rawRows.length > 0 ? Object.keys(rawRows[0]) : [];
+        const numericCols = keys.filter(k => typeof rawRows[0]?.[k] === 'number');
+        const categoricalCols = keys.filter(k => typeof rawRows[0]?.[k] === 'string');
+        
+        const type = chartType.toLowerCase();
+        console.log(`[autoGenerateMapping] Chart: ${chartType} | Numeric: ${numericCols.length} | Categorical: ${categoricalCols.length}`, { numericCols, categoricalCols });
+        
+        if (type.includes('bar')) {
+            return { x_key: categoricalCols[0] || keys[0], y_keys: numericCols.slice(0, 2) };
+        }
+        if (type.includes('line') || type.includes('area') || type.includes('trend')) {
+            return { x_key: categoricalCols[0] || keys[0], y_keys: numericCols.slice(0, 2) };
+        }
+        if (type.includes('pie')) {
+            return { label_key: categoricalCols[0] || keys[0], value_key: numericCols[0] || keys[1] };
+        }
+        if (type.includes('scatter') || type.includes('plot')) {
+            return { x_key: numericCols[0] || keys[0], y_keys: [numericCols[1] || numericCols[0] || keys[1]], tooltip_key: categoricalCols[0] };
+        }
+        if (type.includes('histogram')) {
+            return { x_key: numericCols[0] || keys[0], nbins: 30 };
+        }
+        if (type.includes('box')) {
+            return { x_key: categoricalCols[0] || keys[0], y_key: numericCols[0] || keys[1] };
+        }
+        if (type.includes('heatmap')) {
+            return { columns: numericCols.length > 0 ? numericCols : null };
+        }
+        return {};
+    }, [rawRows]);
+
     const renderChart = () => {
         const cfg = selectedConfig;
         if (!cfg) return null;
@@ -310,7 +434,13 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
             );
         }
 
-        if (cfg.plotly_json) {
+        // Check if data is filtered (comparing length)
+        const isDataFiltered = filteredData.length !== (data.original_data?.length || 0);
+        console.log(`[renderChart] isDataFiltered=${isDataFiltered}, filtered=${filteredData.length}, original=${data.original_data?.length}`);
+
+        // Only use pre-generated plotly_json if data is NOT filtered
+        // When data is filtered, regenerate from rawRows to respect the filter
+        if (cfg.plotly_json && !isDataFiltered) {
             try {
                 const parsed = JSON.parse(cfg.plotly_json);
                 if (parsed.error) {
@@ -333,8 +463,28 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
         }
 
         const type = cfg.type.toLowerCase();
+        
+        // Get column mappings - use AI config or auto-generate if missing
+        let mapping = {
+            x_key: cfg.x_key,
+            y_keys: cfg.y_keys,
+            label_key: cfg.label_key,
+            value_key: cfg.value_key,
+            y_key: cfg.y_key,
+            nbins: cfg.nbins,
+            columns: cfg.columns,
+            tooltip_key: cfg.tooltip_key
+        };
+        
+        // If critical mappings are missing, auto-generate them
+        if ((!mapping.x_key && !mapping.label_key && !mapping.columns) || 
+            (!mapping.y_keys && !mapping.y_key && !mapping.value_key && type !== 'heatmap' && !type.includes('histogram'))) {
+            console.log(`[renderChart] Missing mappings, auto-generating for ${cfg.type}`);
+            mapping = autoGenerateMapping(cfg.type);
+        }
+        
         if (type.includes('bar')) {
-            const xKey = cfg.x_key; const yKeys = cfg.y_keys || [];
+            const xKey = mapping.x_key; const yKeys = mapping.y_keys || [];
             if (!xKey || yKeys.length === 0) return <NoColumnWarning />;
             return (
                 <ResponsiveContainer width="100%" height={360}>
@@ -349,7 +499,7 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
         }
 
         if (type.includes('line') || type.includes('area') || type.includes('trend')) {
-            const xKey = cfg.x_key; const yKeys = cfg.y_keys || [];
+            const xKey = mapping.x_key; const yKeys = mapping.y_keys || [];
             if (!xKey || yKeys.length === 0) return <NoColumnWarning />;
             return (
                 <ResponsiveContainer width="100%" height={360}>
@@ -368,7 +518,7 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
         }
 
         if (type.includes('pie')) {
-            const labelKey = cfg.label_key; const valueKey = cfg.value_key;
+            const labelKey = mapping.label_key; const valueKey = mapping.value_key;
             if (!labelKey || !valueKey) return <NoColumnWarning />;
             const grouped: Record<string, number> = {};
             for (const row of rawRows) { const k = String(row[labelKey] ?? 'Unknown').slice(0, 24); grouped[k] = (grouped[k] || 0) + (Number(row[valueKey]) || 0); }
@@ -383,7 +533,7 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
         }
 
         if (type.includes('scatter') || type.includes('plot')) {
-            const xKey = cfg.x_key; const yKey = cfg.y_key || cfg.y_keys?.[0];
+            const xKey = mapping.x_key; const yKey = mapping.y_key || mapping.y_keys?.[0];
             if (!xKey || !yKey) return <NoColumnWarning />;
             return (
                 <ResponsiveContainer width="100%" height={360}>
@@ -391,7 +541,7 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
                         <XAxis type={typeof rawRows[0]?.[xKey] === 'number' ? 'number' : 'category'} dataKey={xKey} name={xKey} {...axisStyle} />
                         <YAxis type="number" dataKey={yKey} name={yKey} {...axisStyle} />
-                        {cfg.tooltip_key && <ZAxis dataKey={cfg.tooltip_key} range={[40, 280]} />}
+                        {mapping.tooltip_key && <ZAxis dataKey={mapping.tooltip_key} range={[40, 280]} />}
                         <Tooltip cursor={{ strokeDasharray: '3 3' }} {...tooltipStyle} />
                         <Scatter name="Data Points" data={rawRows} fill="#F472B6" fillOpacity={0.75} />
                     </ScatterChart>
@@ -438,6 +588,69 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
                 <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65 }}>{data.insights.summary}</p>
             </div>
 
+            {/* ─── Date Filter or Message ─────────────────── */}
+            {dateColumn ? (
+                <div className="mb-6 p-4 rounded-lg" style={{ background: 'var(--bg-overlay)', border: '1px solid var(--border)' }}>
+                    <div className="flex flex-wrap items-end gap-3">
+                        {[
+                            { label: '📅 Start Date', val: filterStartDate, set: setFilterStartDate },
+                            { label: 'End Date', val: filterEndDate, set: setFilterEndDate }
+                        ].map(d => (
+                            <div key={d.label}>
+                                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>
+                                    {d.label}
+                                </label>
+                                <input
+                                    type="date"
+                                    value={d.val || ''}
+                                    onChange={(e) => d.set(e.target.value || null)}
+                                    style={{ background: 'var(--bg-inset)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', color: 'var(--text-primary)', fontSize: 13 }}
+                                />
+                            </div>
+                        ))}
+                        <button
+                            onClick={applyDateFilter}
+                            disabled={!filterStartDate || !filterEndDate}
+                            style={{
+                                background: filterStartDate && filterEndDate ? 'var(--accent)' : 'var(--bg-inset)',
+                                color: filterStartDate && filterEndDate ? 'white' : 'var(--text-muted)',
+                                border: '1px solid var(--border)',
+                                borderRadius: 6,
+                                padding: '6px 14px',
+                                fontSize: 12,
+                                fontWeight: 600,
+                                cursor: filterStartDate && filterEndDate ? 'pointer' : 'not-allowed',
+                                opacity: filterStartDate && filterEndDate ? 1 : 0.5,
+                            }}
+                        >
+                            Apply Filter
+                        </button>
+                        {(filterStartDate || filterEndDate) && (
+                            <button
+                                onClick={clearFilter}
+                                style={{
+                                    background: 'transparent',
+                                    color: 'var(--danger)',
+                                    border: '1px solid var(--danger)',
+                                    borderRadius: 6,
+                                    padding: '6px 14px',
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                Reset
+                            </button>
+                        )}
+                        {filteredData.length !== (data.original_data?.length || 0) && (
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 'auto' }}>
+                                ✅ Showing {filteredData.length} of {data.original_data?.length || 0} rows
+                            </div>
+                        )}
+                    </div>
+                </div>
+            ) : null}
+
             {/* ─── KPI Row ──────────────────────────────── */}
             {kpis.length > 0 && (
                 <div className="grid gap-3 mb-7" style={{ gridTemplateColumns: `repeat(${Math.min(kpis.length, 4)}, 1fr)` }}>
@@ -456,31 +669,41 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
             )}
 
             {/* ─── Chart Section ─────────────────────────── */}
+            {!showDataAnalysis ? (
             <div className="flex flex-col" ref={chartAreaRef}>
-                {/* Tab Row */}
-                <div className="flex items-center gap-1 mb-3 overflow-x-auto scrollbar-none">
-                    {chartTabs.map((cfg, idx) => {
-                        const isActive = idx === selectedIdx;
-                        const isNew = idx >= (data.chart_configs?.length || initialTabs.length);
-                        return (
-                            <button key={`${cfg.type}-${idx}`} onClick={() => { setSelectedIdx(idx); setIsEditing(false); }}
-                                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[13px] whitespace-nowrap transition-all"
-                                style={{
-                                    background: isActive ? 'var(--bg-elevated)' : 'transparent',
-                                    color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
-                                    border: isActive ? '1px solid var(--border)' : '1px solid transparent',
-                                    cursor: 'pointer',
-                                }}>
-                                <span style={{ color: isActive ? 'var(--accent-text)' : undefined }}>{getIcon(cfg.type)}</span>
-                                {cfg.title || cfg.type}
-                                {isNew && <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.05em', padding: '2px 5px', borderRadius: 4, background: 'var(--accent-dim)', color: 'var(--accent-text)', textTransform: 'uppercase' }}>NEW</span>}
-                            </button>
-                        );
-                    })}
-                    <button onClick={addBlankChart}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs whitespace-nowrap transition-all"
-                        style={{ border: '1px dashed var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}>
-                        <Plus size={12} /> Add Chart
+                {/* Tab Row with Data Analysis Toggle */}
+                <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
+                        {chartTabs.map((cfg, idx) => {
+                            const isActive = idx === selectedIdx;
+                            const isNew = idx >= (data.chart_configs?.length || initialTabs.length);
+                            return (
+                                <button key={`${cfg.type}-${idx}`} onClick={() => { setSelectedIdx(idx); setIsEditing(false); }}
+                                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[13px] whitespace-nowrap transition-all"
+                                    style={{
+                                        background: isActive ? 'var(--bg-elevated)' : 'transparent',
+                                        color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+                                        border: isActive ? '1px solid var(--border)' : '1px solid transparent',
+                                        cursor: 'pointer',
+                                    }}>
+                                    <span style={{ color: isActive ? 'var(--accent-text)' : undefined }}>{getIcon(cfg.type)}</span>
+                                    {cfg.title || cfg.type}
+                                    {isNew && <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.05em', padding: '2px 5px', borderRadius: 4, background: 'var(--accent-dim)', color: 'var(--accent-text)', textTransform: 'uppercase' }}>NEW</span>}
+                                </button>
+                            );
+                        })}
+                        <button onClick={addBlankChart}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs whitespace-nowrap transition-all"
+                            style={{ border: '1px dashed var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                            <Plus size={12} /> Add Chart
+                        </button>
+                    </div>
+                    <button
+                        onClick={() => setShowDataAnalysis(true)}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs whitespace-nowrap"
+                        style={{ border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer', background: 'var(--bg-inset)' }}
+                    >
+                        <Settings size={12} /> Data Analysis
                     </button>
                 </div>
 
@@ -547,6 +770,18 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
                     )}
                 </AnimatePresence>
             </div>
+            ) : (
+            <div className="flex flex-col gap-4">
+                <button
+                    onClick={() => setShowDataAnalysis(false)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs whitespace-nowrap self-start"
+                    style={{ border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer', background: 'var(--bg-inset)' }}
+                >
+                    ← Back to Charts
+                </button>
+                <DataAnalysis data={data} fileId={data.file_id} />
+            </div>
+            )}
         </div>
     );
 }
