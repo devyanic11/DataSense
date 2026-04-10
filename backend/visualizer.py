@@ -20,6 +20,8 @@ class Visualizer:
         )
         return fig
 
+#------------------------------------------------------------------------
+
     @staticmethod
     def generate_bar_chart(df: pd.DataFrame, title: str, x_col: str, y_cols: list[str]) -> str:
         """Generates a bar chart JSON from a complete DataFrame."""
@@ -36,6 +38,8 @@ class Visualizer:
             return fig.to_json()
         except Exception as e:
             return json.dumps({"error": f"Bar Chart Error: {str(e)}"})
+
+#----------------------------------------------------------------
 
     @staticmethod
     def generate_line_chart(df: pd.DataFrame, title: str, x_col: str, y_cols: list[str]) -> str:
@@ -62,6 +66,8 @@ class Visualizer:
         except Exception as e:
             return json.dumps({"error": f"Line Chart Error: {str(e)}"})
 
+#----------------------------------------------------------------
+
     @staticmethod
     def generate_pie_chart(df: pd.DataFrame, title: str, label_col: str, value_col: str) -> str:
         """Generates a pie chart JSON from a complete DataFrame."""
@@ -82,8 +88,10 @@ class Visualizer:
         except Exception as e:
             return json.dumps({"error": f"Pie Chart Error: {str(e)}"})
 
+#----------------------------------------------------------------
+
     @staticmethod
-    def generate_scatter_plot(df: pd.DataFrame, title: str, x_col: str, y_col: str, tooltip_col: str = None) -> str:
+    def generate_scatter_plot(df: pd.DataFrame, title: str, x_col: str, y_col: str, tooltip_col: str | None = None) -> str:
         """Generates a scatter plot JSON from a complete DataFrame."""
         try:
             # Sample if data is massive to prevent browser freezing with too many dots
@@ -98,7 +106,9 @@ class Visualizer:
             return fig.to_json()
         except Exception as e:
             return json.dumps({"error": f"Scatter Plot Error: {str(e)}"})
-        
+
+    #----------------------------------------------------------------
+
     @staticmethod
     def generate_histogram(df: pd.DataFrame, title: str, x_col: str, nbins: int = 30) -> str:
         """Generates a histogram JSON showing distribution of a single numeric column."""
@@ -119,6 +129,7 @@ class Visualizer:
         except Exception as e:
             return json.dumps({"error": f"Histogram Error: {str(e)}"})
 
+#--------------------------------------------------------------------------
     @staticmethod
     def generate_box_plot(df: pd.DataFrame, title: str, x_col: str, y_col: str) -> str:
         """Generates a box plot JSON showing spread and outliers of a numeric column across categories."""
@@ -156,7 +167,8 @@ class Visualizer:
             return fig.to_json()
         except Exception as e:
             return json.dumps({"error": f"Box Plot Error: {str(e)}"})
-        
+
+#----------------------------------------------------------------------       
     @staticmethod
     def generate_heatmap(df: pd.DataFrame, title: str, columns: list[str] | None = None) -> str:
         """
@@ -246,3 +258,596 @@ class Visualizer:
             return fig.to_json()
         except Exception as e:
             return json.dumps({"error": f"Heatmap Error: {str(e)}"})
+        
+#--------------------------------------------------------------------------
+
+    @staticmethod
+    def generate_treemap(df: pd.DataFrame, title: str, path_cols: list[str], value_col: str) -> str:
+        """
+        Generates a treemap JSON showing hierarchical composition.
+        path_cols defines the hierarchy levels e.g. ['Region', 'Category']
+        value_col is the numeric column defining rectangle size.
+        """
+        try:
+            # ── 1. Validate inputs ───────────────────────────────────────────
+            for col in path_cols + [value_col]:
+                if col not in df.columns:
+                    return json.dumps({"error": f"Column '{col}' not found in dataset."})
+
+            # ── 2. Drop nulls in hierarchy and value columns ─────────────────
+            # Treemap crashes on NaN in path — must be clean
+            clean_df = df[path_cols + [value_col]].dropna()
+
+            # ── 3. Value must be positive — treemap area is meaningless on negatives
+            clean_df = clean_df[clean_df[value_col] > 0]
+
+            if clean_df.empty:
+                return json.dumps({"error": "No valid positive data available for treemap."})
+
+            # ── 4. Cap rows — treemap with 5k+ rectangles is unrenderable
+            if len(clean_df) > 5000:
+                clean_df = clean_df.groupby(path_cols)[value_col].sum().reset_index()
+
+            # ── 5. Build figure ──────────────────────────────────────────────
+            fig = px.treemap(
+                clean_df,
+                path=path_cols,
+                values=value_col,
+                color=value_col,
+                color_continuous_scale=[
+                    [0.0, '#c4b5fd'],    # low value  → light violet
+                    [0.5, '#8b5cf6'],    # mid value  → violet
+                    [1.0, '#4c1d95'],    # high value → deep violet
+                ]
+            )
+
+            # ── 6. Label polish ──────────────────────────────────────────────
+            fig.update_traces(
+                textinfo='label+value+percent parent',
+                textfont=dict(size=12, family='Inter, sans-serif'),
+                marker=dict(
+                    line=dict(width=1.5, color='white')  # white borders between cells
+                )
+            )
+
+            fig = Visualizer._apply_theme(fig, title)
+            return fig.to_json()
+
+        except Exception as e:
+            return json.dumps({"error": f"Treemap Error: {str(e)}"})
+
+    #------------------------------------------------------------------------
+
+    @staticmethod
+    def generate_funnel(df: pd.DataFrame, title: str, stage_col: str, value_col: str) -> str:
+        """
+        Generates a funnel chart JSON showing drop-off across ordered stages.
+        stage_col defines the process stages (categorical, ordered).
+        value_col is the numeric column defining the size at each stage.
+        """
+        try:
+            # ── 1. Validate columns ──────────────────────────────────────────
+            for col in [stage_col, value_col]:
+                if col not in df.columns:
+                    return json.dumps({"error": f"Column '{col}' not found in dataset."})
+
+            # ── 2. Aggregate — each stage must resolve to a single value ─────
+            # Multiple rows per stage are summed into one bar
+            funnel_df = (
+                df.groupby(stage_col)[value_col]
+                .sum()
+                .reset_index()
+            )
+
+            # ── 3. Sort descending — funnel shape requires largest at top ────
+            funnel_df = funnel_df.sort_values(by=value_col, ascending=False)
+
+            # ── 4. Must have at least 2 stages to show drop-off ─────────────
+            if len(funnel_df) < 2:
+                return json.dumps({"error": "Funnel chart requires at least 2 distinct stages."})
+
+            # ── 5. Cap stages — beyond 12 the funnel loses readability ───────
+            if len(funnel_df) > 12:
+                funnel_df = funnel_df.head(12)
+
+            # ── 6. Build figure ──────────────────────────────────────────────
+            fig = px.funnel(
+                funnel_df,
+                x=value_col,
+                y=stage_col,
+                color=stage_col,
+                color_discrete_sequence=[
+                    '#8b5cf6', '#a78bfa', '#c4b5fd',
+                    '#3b82f6', '#60a5fa', "#7baee8",
+                    '#ec4899', '#f472b6', '#f97316',
+                    '#14b8a6', '#f59e0b', '#ef4444'
+                ]
+            )
+
+            # ── 7. Trace polish ──────────────────────────────────────────────
+            fig.update_traces(
+                textinfo='value+percent initial',   # shows raw value + % drop from first stage
+                textfont=dict(
+                    size=12,
+                    family='Inter, sans-serif',
+                    color='white'
+                ),
+                connector=dict(
+                    line=dict(color='rgba(255,255,255,0.3)', width=1)
+                )
+            )
+
+            # ── 8. Layout polish ─────────────────────────────────────────────
+            fig.update_layout(
+                showlegend=False,        # stage labels on y-axis make legend redundant
+                funnelmode='stack',
+            )
+
+            fig = Visualizer._apply_theme(fig, title)
+            return fig.to_json()
+
+        except Exception as e:
+            return json.dumps({"error": f"Funnel Chart Error: {str(e)}"})
+        
+        #------------------------------------------------------------------------
+    @staticmethod
+    def generate_violin(df: pd.DataFrame, title: str, x_col: str, y_col: str) -> str:
+        """
+        Generates a violin plot JSON showing full distribution shape per category.
+        x_col is the categorical grouping column.
+        y_col is the numeric column whose distribution is being analysed per group.
+        """
+        try:
+            # ── 1. Validate columns ──────────────────────────────────────────
+            for col in [x_col, y_col]:
+                if col not in df.columns:
+                    return json.dumps({"error": f"Column '{col}' not found in dataset."})
+
+            # ── 2. Enforce numeric y ─────────────────────────────────────────
+            if not pd.api.types.is_numeric_dtype(df[y_col]):
+                return json.dumps({"error": f"Column '{y_col}' must be numeric for violin plot."})
+
+            plot_df = df[[x_col, y_col]].dropna()
+
+            if plot_df.empty:
+                return json.dumps({"error": "No valid data after removing nulls."})
+
+            # ── 3. Category cap — beyond 10 violins become unreadable ────────
+            if plot_df[x_col].nunique() > 10:
+                top_categories = (
+                    plot_df[x_col].value_counts()
+                    .nlargest(10)
+                    .index
+                )
+                plot_df = plot_df[plot_df[x_col].isin(top_categories)]
+
+            # ── 4. Minimum points per group guard ────────────────────────────
+            # KDE (kernel density estimate) needs at least 5 points to draw a
+            # meaningful shape — groups with fewer points are dropped cleanly
+            valid_groups = (
+                plot_df.groupby(x_col)[y_col]
+                .count()
+                .loc[lambda s: s >= 5]
+                .index
+            )
+            plot_df = plot_df[plot_df[x_col].isin(valid_groups)]
+
+            if plot_df.empty:
+                return json.dumps({"error": "Insufficient data points per group to render violin plot."})
+
+            # ── 5. Row safety ────────────────────────────────────────────────
+            if len(plot_df) > 20000:
+                plot_df = plot_df.groupby(x_col, group_keys=False).apply(
+                    lambda g: g.sample(min(len(g), 2000), random_state=42)
+                )
+
+            # ── 6. Build figure ──────────────────────────────────────────────
+            fig = px.violin(
+                plot_df,
+                x=x_col,
+                y=y_col,
+                color=x_col,
+                box=True,               # embed box plot inside violin for dual insight
+                points='outliers',      # show only outlier dots — all points clutters
+                color_discrete_sequence=[
+                    '#8b5cf6', '#3b82f6', '#ec4899',
+                    '#f97316', '#14b8a6', '#f59e0b',
+                    '#ef4444', '#a78bfa', '#60a5fa',
+                    '#f472b6', '#34d399', '#fbbf24'
+                ]
+            )
+
+            # ── 7. Trace polish ──────────────────────────────────────────────
+            fig.update_traces(
+                meanline=dict(
+                    visible=True,       # mean line inside violin — key statistical marker
+                    color='white',
+                    width=2
+                ),
+                opacity=0.85,           # slight transparency reveals overlapping density
+            )
+
+            # ── 8. Layout polish ─────────────────────────────────────────────
+            fig.update_layout(
+                showlegend=False,       # x-axis already labels groups — legend is redundant
+                violingap=0.3,          # breathing room between violins
+                violinmode='overlay'    # if multiple traces, overlay cleanly
+            )
+
+            fig = Visualizer._apply_theme(fig, title)
+            return fig.to_json()
+
+        except Exception as e:
+            return json.dumps({"error": f"Violin Plot Error: {str(e)}"})
+
+# ------------------------------------------------------------------------
+    @staticmethod
+    def generate_bubble_chart(df: pd.DataFrame, title: str, x_col: str, y_col: str, size_col: str, color_col: str | None = None) -> str:
+        """
+        Generates a bubble chart JSON showing relationships across 3 numeric variables.
+        x_col    → x-axis numeric column
+        y_col    → y-axis numeric column
+        size_col → numeric column controlling bubble size
+        color_col→ optional categorical column for color grouping (4th dimension)
+        """
+        try:
+            # ── 1. Validate required columns ─────────────────────────────────
+            for col in [x_col, y_col, size_col]:
+                if col not in df.columns:
+                    return json.dumps({"error": f"Column '{col}' not found in dataset."})
+
+            # ── 2. Validate all three core columns are numeric ────────────────
+            for col in [x_col, y_col, size_col]:
+                if not pd.api.types.is_numeric_dtype(df[col]):
+                    return json.dumps({"error": f"Column '{col}' must be numeric for bubble chart."})
+
+            # ── 3. Select relevant columns and drop nulls ─────────────────────
+            cols_to_use = [x_col, y_col, size_col]
+            if color_col and color_col in df.columns:
+                cols_to_use.append(color_col)
+            else:
+                color_col = None   # reset if not found — use single color fallback
+
+            plot_df = df[cols_to_use].dropna()
+
+            if plot_df.empty:
+                return json.dumps({"error": "No valid data after removing nulls."})
+
+            # ── 4. Filter out non-positive size values ────────────────────────
+            # Plotly cannot render zero or negative bubble sizes — they crash silently
+            plot_df = plot_df[plot_df[size_col] > 0]
+
+            if plot_df.empty:
+                return json.dumps({"error": f"Column '{size_col}' has no positive values for bubble sizing."})
+
+            # ── 5. Row safety — large bubble charts freeze the browser ─────────
+            if len(plot_df) > 2000:
+                plot_df = plot_df.sample(n=2000, random_state=42)
+
+            # ── 6. Normalize size column to readable bubble range ─────────────
+            # Raw values (e.g. revenue in millions) produce invisible or
+            # screen-filling bubbles — normalize to 5–80px range
+            size_min = plot_df[size_col].min()
+            size_max = plot_df[size_col].max()
+
+            if size_max > size_min:
+                plot_df = plot_df.copy()
+                plot_df['_bubble_size'] = (
+                    5 + ((plot_df[size_col] - size_min) / (size_max - size_min)) * 75
+                )
+            else:
+                # All values identical — use fixed mid-size
+                plot_df = plot_df.copy()
+                plot_df['_bubble_size'] = 30
+
+            # ── 7. Build figure ───────────────────────────────────────────────
+            if color_col:
+                fig = px.scatter(plot_df, x=x_col, y=y_col, size='_bubble_size', color=color_col,
+                    color_discrete_sequence=[
+                        '#8b5cf6', '#3b82f6', '#ec4899',
+                        '#f97316', '#14b8a6', '#f59e0b', '#ef4444'
+                    ],
+                    hover_data={x_col: True, y_col: True, size_col: True, # show original value in tooltip
+                        '_bubble_size': False,   # hide normalized value from tooltip
+                        color_col: True
+                    },
+                    size_max=80
+                )
+            else:
+                fig = px.scatter(plot_df, x=x_col, y=y_col, size='_bubble_size',
+                    color_discrete_sequence=['#8b5cf6'],
+                    hover_data={x_col: True, y_col: True, size_col: True, '_bubble_size': False},
+                    size_max=80
+                )
+
+            # ── 8. Trace polish ───────────────────────────────────────────────
+            fig.update_traces(
+                opacity=0.7,                          # transparency reveals overlapping bubbles
+                marker=dict(
+                    line=dict(width=0.8, color='white')  # thin white border separates touching bubbles
+                )
+            )
+
+            # ── 9. Axis labels with size column name for clarity ──────────────
+            fig.update_layout(
+                xaxis_title=x_col,
+                yaxis_title=y_col,
+                legend=dict(
+                    title=dict(text=color_col if color_col else ''),
+                    font=dict(size=11)
+                )
+            )
+
+            fig = Visualizer._apply_theme(fig, title)
+            return fig.to_json()
+
+        except Exception as e:
+            return json.dumps({"error": f"Bubble Chart Error: {str(e)}"})
+
+#------------------------------------------------------------------------
+    @staticmethod
+    def generate_waterfall_chart(df: pd.DataFrame, title: str, x_col: str, y_col: str) -> str:
+        """
+        Generates a waterfall chart JSON showing cumulative effect of sequential
+        positive and negative values across ordered categories.
+        'x_col' is the ordered categorical/stage column (x-axis labels).
+        'y_col' is the numeric column of incremental values (can be +/-).
+        """
+        try:
+            plot_df = df.copy()
+
+            # Safety: drop nulls in either column
+            plot_df = plot_df.dropna(subset=[x_col, y_col])
+
+            # Safety: coerce y_col to numeric, drop unconvertible rows
+            plot_df[y_col] = pd.to_numeric(plot_df[y_col], errors='coerce')
+            plot_df = plot_df.dropna(subset=[y_col])
+
+            if plot_df.empty:
+                return json.dumps({"error": "Waterfall: no valid rows after filtering nulls."})
+
+            # Aggregate: if multiple rows share the same x label, sum them
+            agg_df = (
+                plot_df.groupby(x_col, sort=False)[y_col]
+                .sum()
+                .reset_index()
+            )
+
+            # Safety: cap at 20 stages — more than that is unreadable
+            if len(agg_df) > 20:
+                agg_df = agg_df.head(20)
+
+            labels = agg_df[x_col].astype(str).tolist()
+            values = agg_df[y_col].tolist()
+
+            # Colour each bar: green for positive, red for negative
+            colors = ['#14b8a6' if v >= 0 else '#ef4444' for v in values]
+
+            # Build a Plotly waterfall trace directly — px has no waterfall
+            fig = go.Figure(go.Waterfall(
+                name='',
+                orientation='v',
+                x=labels,
+                y=values,
+                connector=dict(
+                    line=dict(color='rgba(255,255,255,0.15)', width=1, dash='dot')
+                ),
+                increasing=dict(marker=dict(color='#14b8a6')),
+                decreasing=dict(marker=dict(color='#ef4444')),
+                totals=dict(marker=dict(color='#8b5cf6')),
+                textposition='outside',
+                texttemplate='%{y:+,.2f}',
+                hovertemplate='<b>%{x}</b><br>Change: %{y:+,.2f}<br>Running total: %{base+y:,.2f}<extra></extra>'
+            ))
+
+            fig = Visualizer._apply_theme(fig, title)
+            fig.update_layout(
+                showlegend=False,
+                waterfallgap=0.3
+            )
+            return fig.to_json()
+        except Exception as e:
+            return json.dumps({"error": f"Waterfall Chart Error: {str(e)}"})
+        
+#------------------------------------------------------------------------
+    @staticmethod
+    def generate_sunburst(df: pd.DataFrame, title: str, path_cols: list[str], value_col: str) -> str:
+        """
+        Generates a sunburst chart JSON showing hierarchical composition as concentric rings.
+        path_cols → ordered list of categorical columns forming the hierarchy (outermost = last)
+        value_col → numeric column defining each segment's size
+        """
+        try:
+            # ── 1. Validate inputs ───────────────────────────────────────────
+            if not path_cols:
+                return json.dumps({"error": "Sunburst requires at least one path column."})
+
+            for col in path_cols + [value_col]:
+                if col not in df.columns:
+                    return json.dumps({"error": f"Column '{col}' not found in dataset."})
+
+            if not pd.api.types.is_numeric_dtype(df[value_col]):
+                return json.dumps({"error": f"Column '{value_col}' must be numeric for sunburst chart."})
+
+            # ── 2. Select and clean relevant columns only ────────────────────
+            plot_df = df[path_cols + [value_col]].dropna()
+
+            if plot_df.empty:
+                return json.dumps({"error": "No valid data after removing nulls."})
+
+            # ── 3. Filter non-positive values ────────────────────────────────
+            # Negative or zero slice sizes break the radial geometry
+            plot_df = plot_df[plot_df[value_col] > 0]
+
+            if plot_df.empty:
+                return json.dumps({"error": f"Column '{value_col}' has no positive values for sunburst sizing."})
+
+            # ── 4. Aggregate for large datasets ──────────────────────────────
+            # Raw rows with duplicate path combinations create broken ring segments
+            # Aggregating collapses them into clean unique hierarchy nodes
+            if len(plot_df) > 5000:
+                plot_df = (
+                    plot_df.groupby(path_cols)[value_col]
+                    .sum()
+                    .reset_index()
+                )
+
+            # ── 5. Cap unique values per level ───────────────────────────────
+            # Beyond 15 unique values at any level the ring segments become
+            # too thin to read labels — keep top 15 by aggregated value
+            for col in path_cols:
+                if plot_df[col].nunique() > 15:
+                    top_vals = (
+                        plot_df.groupby(col)[value_col]
+                        .sum()
+                        .nlargest(15)
+                        .index
+                    )
+                    plot_df = plot_df[plot_df[col].isin(top_vals)]
+
+            if plot_df.empty:
+                return json.dumps({"error": "No data remaining after category cap."})
+
+            # ── 6. Build figure ──────────────────────────────────────────────
+            fig = px.sunburst(plot_df, path=path_cols, values=value_col,
+                color=path_cols[-1],          # color by innermost level for max distinction
+                color_discrete_sequence=[
+                    '#8b5cf6', '#3b82f6', '#ec4899',
+                    '#f97316', '#14b8a6', '#f59e0b',
+                    '#ef4444', '#a78bfa', '#60a5fa',
+                    '#f472b6', '#34d399', '#fbbf24',
+                    '#fb923c', '#38bdf8', '#c084fc'
+                ]
+            )
+
+            # ── 7. Trace polish ──────────────────────────────────────────────
+            fig.update_traces(
+                textinfo='label+percent parent',  # name + share within parent ring
+                textfont=dict(
+                    size=11,
+                    family='Inter, sans-serif',
+                ),
+                insidetextorientation='radial',   # text follows ring curvature — readable
+                marker=dict(
+                    line=dict(width=1.2, color='white')  # white borders separate segments cleanly
+                ),
+                hovertemplate=(
+                    '<b>%{label}</b><br>'
+                    'Value: %{value}<br>'
+                    'Share of parent: %{percentParent:.1%}<br>'
+                    'Share of total: %{percentRoot:.1%}'
+                    '<extra></extra>'             # removes the secondary hover box
+                )
+            )
+
+            # ── 8. Layout polish ─────────────────────────────────────────────
+            fig.update_layout(
+                margin=dict(l=20, r=20, t=60, b=20),   # tighter margin — chart is circular
+            )
+
+            fig = Visualizer._apply_theme(fig, title)
+            return fig.to_json()
+
+        except Exception as e:
+            return json.dumps({"error": f"Sunburst Chart Error: {str(e)}"})
+        
+        #------------------------------------------------------------------------
+    @staticmethod
+    def generate_donut(df: pd.DataFrame, title: str, label_col: str, value_col: str) -> str:
+        """
+        Generates a donut chart JSON with central total annotation.
+        label_col → categorical column for slice labels
+        value_col → numeric column for slice sizes
+        """
+        try:
+            # ── 1. Validate columns ──────────────────────────────────────────
+            for col in [label_col, value_col]:
+                if col not in df.columns:
+                    return json.dumps({"error": f"Column '{col}' not found in dataset."})
+
+            if not pd.api.types.is_numeric_dtype(df[value_col]):
+                return json.dumps({"error": f"Column '{value_col}' must be numeric for donut chart."})
+
+            # ── 2. Aggregate ─────────────────────────────────────────────────
+            plot_df = (
+                df.groupby(label_col)[value_col]
+                .sum()
+                .reset_index()
+            )
+            plot_df = plot_df[plot_df[value_col] > 0]
+
+            if plot_df.empty:
+                return json.dumps({"error": "No valid positive data available for donut chart."})
+
+            # ── 3. Category cap — beyond 10 slices lose readability ──────────
+            if len(plot_df) > 10:
+                top_9 = plot_df.nlargest(9, value_col)
+                other_sum = plot_df[~plot_df[label_col].isin(top_9[label_col])][value_col].sum()
+                other_df = pd.DataFrame([{label_col: 'Other', value_col: other_sum}])
+                plot_df = pd.concat([top_9, other_df], ignore_index=True)
+
+            # ── 4. Central total annotation ──────────────────────────────────
+            total = plot_df[value_col].sum()
+            if total >= 1_000_000:
+                total_label = f"{total / 1_000_000:.1f}M"
+            elif total >= 1_000:
+                total_label = f"{total / 1_000:.1f}K"
+            else:
+                total_label = f"{total:,.0f}"
+
+            # ── 5. Build figure ──────────────────────────────────────────────
+            fig = go.Figure(
+                go.Pie(labels=plot_df[label_col], values=plot_df[value_col], hole=0.55,
+                    marker=dict(
+                        colors=[
+                            '#8b5cf6', '#3b82f6', '#ec4899',
+                            '#f97316', '#14b8a6', '#f59e0b',
+                            '#ef4444', '#a78bfa', '#60a5fa', '#f472b6'
+                        ],
+                        line=dict(color='white', width=1.5)
+                    ),
+                    textinfo='label+percent',
+                    textposition='outside',
+                    textfont=dict(size=11, family='Inter, sans-serif'),
+                    hovertemplate=(
+                        '<b>%{label}</b><br>'
+                        'Value: %{value:,.0f}<br>'
+                        'Share: %{percent}<br>'
+                        '<extra></extra>'
+                    ),
+                    pull=[0.03] * len(plot_df),     # slight pull on all slices — clean separation
+                )
+            )
+
+            # ── 6. Central annotation — total value in the hole ──────────────
+            fig.add_annotation(
+                text=f'<b>{total_label}</b>',
+                x=0.5, y=0.52,
+                font=dict(size=22, color='#F2F2F0', family='Inter, sans-serif'),
+                showarrow=False,
+                xref='paper', yref='paper'
+            )
+            fig.add_annotation(
+                text='Total',
+                x=0.5, y=0.42,
+                font=dict(size=12, color='#A8A8A3', family='Inter, sans-serif'),
+                showarrow=False,
+                xref='paper', yref='paper'
+            )
+
+            # ── 7. Layout polish ─────────────────────────────────────────────
+            fig.update_layout(
+                showlegend=True,
+                legend=dict(
+                    orientation='v',
+                    x=1.02, y=0.5,
+                    font=dict(size=11, color='#475569', family='Inter, sans-serif')
+                ),
+                margin=dict(l=20, r=120, t=60, b=20)   # right margin for legend
+            )
+
+            fig = Visualizer._apply_theme(fig, title)
+            return fig.to_json()
+
+        except Exception as e:
+            return json.dumps({"error": f"Donut Chart Error: {str(e)}"})
