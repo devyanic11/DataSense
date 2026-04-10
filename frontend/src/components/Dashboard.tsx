@@ -220,17 +220,28 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
     const [filterEndDate, setFilterEndDate] = useState<string | null>(null);
     const [filteredData, setFilteredData] = useState<any[]>(data.original_data || []);
 
-    // Find date column
+    // Find date column (check both name and type from metadata)
     const dateColumn = useMemo(() => {
+        if (!data.column_meta) return null;
+        
+        // First check if any column is marked as date/time type in metadata
+        for (const [colName, colInfo] of Object.entries(data.column_meta)) {
+            if (colInfo?.type === 'date' || colInfo?.type === 'datetime' || colInfo?.type === 'timestamp') {
+                return colName;
+            }
+        }
+        
+        // Fallback: check column names for explicit date/time keywords (exclude "year" as it's usually just a number)
         if (!data.original_data || data.original_data.length === 0) return null;
         const row = data.original_data[0];
         const keys = Object.keys(row);
-        return keys.find(k => 
-            k.toLowerCase().includes('date') || 
-            k.toLowerCase().includes('year') ||
-            k.toLowerCase().includes('time')
-        ) || null;
-    }, [data.original_data]);
+        const dateCol = keys.find(k => {
+            const lower = k.toLowerCase();
+            // Match "date" or "time" explicitly, but exclude "_year" or "disc_year" type columns
+            return (lower.includes('date') || lower.includes('time')) && !lower.includes('year');
+        });
+        return dateCol || null;
+    }, [data.original_data, data.column_meta]);
 
     // Helper: Parse various date formats (memoized so it's stable)
     const parseDate = useCallback((val: any): number | null => {
@@ -638,13 +649,7 @@ export default function Dashboard({ data, externalChartRequest }: DashboardProps
                         )}
                     </div>
                 </div>
-            ) : (
-                <div className="mb-6 p-4 rounded-lg" style={{ background: 'var(--bg-overlay)', border: '1px solid var(--border)', borderLeft: '3px solid var(--danger)' }}>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                        ⚠️ <strong>No date column found</strong> — This dataset cannot use date filtering. Upload data with a column containing 'date', 'year', or 'time'.
-                    </div>
-                </div>
-            )}
+            ) : null}
 
             {/* ─── KPI Row ──────────────────────────────── */}
             {kpis.length > 0 && (
