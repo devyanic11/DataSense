@@ -2,6 +2,7 @@ import pandas as pd
 import json
 import io
 from PyPDF2 import PdfReader
+import numpy as np
 
 class DataParser:
     @staticmethod
@@ -140,3 +141,117 @@ class DataParser:
             f"Columns: {columns}\n\n"
             f"First 5 Rows:\n{head}\n"
         )
+
+    @staticmethod
+    def aggregate_data(df: pd.DataFrame, group_by: str, agg_col: str, agg_func: str) -> list:
+        """
+        Aggregate data by grouping and applying function.
+        agg_func: 'sum', 'count', 'avg', 'max', 'min', 'std'
+        """
+        try:
+            if group_by not in df.columns or agg_col not in df.columns:
+                return []
+            
+            group = df.groupby(group_by)[agg_col]
+            
+            if agg_func == 'sum':
+                result = group.sum()
+            elif agg_func == 'count':
+                result = group.count()
+            elif agg_func == 'avg':
+                result = group.mean()
+            elif agg_func == 'max':
+                result = group.max()
+            elif agg_func == 'min':
+                result = group.min()
+            elif agg_func == 'std':
+                result = group.std()
+            else:
+                result = group.sum()
+            
+            return [
+                {"group": str(k), "value": float(v) if pd.notna(v) else 0}
+                for k, v in result.items()
+            ]
+        except Exception as e:
+            return []
+
+    @staticmethod
+    def get_top_values(df: pd.DataFrame, column: str, n: int = 10) -> list:
+        """Get top N most frequent values in a column."""
+        try:
+            if column not in df.columns:
+                return []
+            
+            value_counts = df[column].value_counts().head(n)
+            return [
+                {"value": str(k), "count": int(v)}
+                for k, v in value_counts.items()
+            ]
+        except Exception:
+            return []
+
+    @staticmethod
+    def get_numeric_distribution(df: pd.DataFrame, column: str, bins: int = 10) -> list:
+        """Get distribution of numeric column (histogram data)."""
+        try:
+            if column not in df.columns:
+                return []
+            
+            data = pd.to_numeric(df[column], errors='coerce').dropna()
+            if len(data) == 0:
+                return []
+            
+            counts, edges = np.histogram(data, bins=bins)
+            return [
+                {
+                    "range": f"{edges[i]:.1f}-{edges[i+1]:.1f}",
+                    "count": int(counts[i])
+                }
+                for i in range(len(counts))
+            ]
+        except Exception:
+            return []
+
+    @staticmethod
+    def get_multi_aggregate(df: pd.DataFrame, group_by: str, agg_cols: list) -> list:
+        """
+        Aggregate multiple columns at once.
+        Returns list where each item has the group + each aggregation.
+        """
+        try:
+            if group_by not in df.columns:
+                return []
+            
+            results = []
+            for row in df.groupby(group_by).agg({col: 'sum' for col in agg_cols if col in df.columns}).reset_index().to_dict('records'):
+                results.append(row)
+            return results
+        except Exception:
+            return []
+
+    @staticmethod
+    def get_pivot_summary(df: pd.DataFrame, rows: str, cols: str, values: str, agg: str = 'sum') -> dict:
+        """
+        Create pivot table style aggregation.
+        Useful for cross-tabulation.
+        """
+        try:
+            if rows not in df.columns or cols not in df.columns or values not in df.columns:
+                return {"error": "Invalid columns"}
+            
+            pivot = df.pivot_table(
+                index=rows,
+                columns=cols,
+                values=values,
+                aggfunc=agg,
+                fill_value=0
+            )
+            
+            return {
+                "rows": pivot.index.tolist(),
+                "columns": pivot.columns.tolist(),
+                "data": pivot.values.tolist()
+            }
+        except Exception as e:
+            return {"error": str(e)}

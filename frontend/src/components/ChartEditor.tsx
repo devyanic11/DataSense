@@ -115,7 +115,9 @@ export function autoSuggestAxes(
     case "Treemap":
     case "Sunburst":
       return {
-        path_cols: categoricalCols.slice(0, 2).length ? categoricalCols.slice(0, 2) : [allCols[0]],
+        path_cols: categoricalCols.slice(0, 2).length
+          ? categoricalCols.slice(0, 2)
+          : [allCols[0]],
         value_key: numericCols[0],
       };
     case "Funnel Chart":
@@ -147,21 +149,31 @@ export function validateConfig(
   }
   if (config.type === "Heatmap") return null;
   if (config.type === "Treemap" || config.type === "Sunburst") {
-    if (!config.path_cols?.length) return "Select at least one grouping column.";
-    if (!config.value_key || !cols.includes(config.value_key)) return "Select a value column.";
+    if (!config.path_cols?.length)
+      return "Select at least one grouping column.";
+    if (!config.value_key || !cols.includes(config.value_key))
+      return "Select a value column.";
     return null;
   }
   if (config.type === "Funnel Chart") {
-    if (!config.label_key || !cols.includes(config.label_key)) return "Select a stage column.";
-    if (!config.value_key || !cols.includes(config.value_key)) return "Select a value column.";
+    if (!config.label_key || !cols.includes(config.label_key))
+      return "Select a stage column.";
+    if (!config.value_key || !cols.includes(config.value_key))
+      return "Select a value column.";
     return null;
   }
   if (!config.x_key || !cols.includes(config.x_key))
     return "Select a valid X axis column.";
   if (
-    ["Bar Chart", "Line Chart", "Area Chart", "Scatter Plot", "Box Plot", "Violin Plot", "Waterfall Chart"].includes(
-      config.type,
-    )
+    [
+      "Bar Chart",
+      "Line Chart",
+      "Area Chart",
+      "Scatter Plot",
+      "Box Plot",
+      "Violin Plot",
+      "Waterfall Chart",
+    ].includes(config.type)
   ) {
     if (!config.y_keys?.length || !cols.includes(config.y_keys[0]))
       return "Select at least one Y axis column.";
@@ -385,20 +397,23 @@ export default function ChartEditor({
     setIsPending(true);
     setError(null);
     try {
-      const res = await axios.post("http://localhost:8000/api/render", {
+      // Build simple request payload
+      const payload: any = {
         file_id: fileId,
         chart_type: cfg.type,
-        title: cfg.title,
-        x_key: cfg.x_key,
-        y_keys: cfg.y_keys,
-        label_key: cfg.label_key,
-        value_key: cfg.value_key,
-        tooltip_key: cfg.tooltip_key,
-        nbins: cfg.nbins,
-        columns: cfg.columns,
-        path_cols: cfg.path_cols,
-        color: cfg.color,
-      });
+        title: cfg.title || "Untitled Chart",
+      };
+
+      if (cfg.x_key) payload.x_key = cfg.x_key;
+      if (cfg.y_keys && cfg.y_keys.length > 0) payload.y_keys = cfg.y_keys;
+      if (cfg.label_key) payload.label_key = cfg.label_key;
+      if (cfg.value_key) payload.value_key = cfg.value_key;
+      if (cfg.tooltip_key) payload.tooltip_key = cfg.tooltip_key;
+      if (cfg.nbins) payload.nbins = cfg.nbins;
+      if (cfg.columns) payload.columns = cfg.columns;
+      if (cfg.color) payload.color = cfg.color;
+
+      const res = await axios.post("http://localhost:8000/api/render", payload);
       onApply(res.data.plotly_json, cfg);
       setHasChanges(false);
     } catch (e: any) {
@@ -643,31 +658,92 @@ export default function ChartEditor({
             {showTreeSun && (
               <>
                 <div>
-                  <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>
+                  <p
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      color: "var(--text-muted)",
+                      marginBottom: 4,
+                    }}
+                  >
                     Hierarchy Columns
                   </p>
                   {(cfg.path_cols || []).map((pc, i) => (
                     <div key={i} className="flex gap-1 mb-1">
-                      <select value={pc} onChange={(e) => { const next = [...(cfg.path_cols || [])]; next[i] = e.target.value; patch({ path_cols: next }); }}
+                      <select
+                        value={pc}
+                        onChange={(e) => {
+                          const next = [...(cfg.path_cols || [])];
+                          next[i] = e.target.value;
+                          patch({ path_cols: next });
+                        }}
                         className="flex-1 rounded-lg text-sm outline-none transition"
-                        style={{ background: 'var(--bg-inset)', border: '1px solid var(--border)', padding: '6px 10px', color: 'var(--text-primary)' }}>
-                        {(categoricalColumns.length ? categoricalColumns : allColumns).map(c => <option key={c} value={c}>{c}</option>)}
+                        style={{
+                          background: "var(--bg-inset)",
+                          border: "1px solid var(--border)",
+                          padding: "6px 10px",
+                          color: "var(--text-primary)",
+                        }}
+                      >
+                        {(categoricalColumns.length
+                          ? categoricalColumns
+                          : allColumns
+                        ).map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
                       </select>
                       {(cfg.path_cols?.length || 0) > 1 && (
-                        <button onClick={() => { const next = [...(cfg.path_cols || [])]; next.splice(i, 1); patch({ path_cols: next }); }} style={{ color: 'var(--danger)' }}><Trash2 size={14} /></button>
+                        <button
+                          onClick={() => {
+                            const next = [...(cfg.path_cols || [])];
+                            next.splice(i, 1);
+                            patch({ path_cols: next });
+                          }}
+                          style={{ color: "var(--danger)" }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       )}
                     </div>
                   ))}
                   {(cfg.path_cols?.length || 0) < 3 && (
-                    <button onClick={() => { const unused = (categoricalColumns.length ? categoricalColumns : allColumns).filter(c => !cfg.path_cols?.includes(c)); if (unused.length) patch({ path_cols: [...(cfg.path_cols || []), unused[0]] }); }}
-                      className="flex items-center gap-1 text-xs mt-0.5" style={{ color: 'var(--accent-text)' }}><Plus size={12} /> Add level</button>
+                    <button
+                      onClick={() => {
+                        const unused = (
+                          categoricalColumns.length
+                            ? categoricalColumns
+                            : allColumns
+                        ).filter((c) => !cfg.path_cols?.includes(c));
+                        if (unused.length)
+                          patch({
+                            path_cols: [...(cfg.path_cols || []), unused[0]],
+                          });
+                      }}
+                      className="flex items-center gap-1 text-xs mt-0.5"
+                      style={{ color: "var(--accent-text)" }}
+                    >
+                      <Plus size={12} /> Add level
+                    </button>
                   )}
                 </div>
-                <AxisSelect label="Value Column" value={cfg.value_key} options={yOptions} onChange={(v) => patch({ value_key: v })} badge={colBadge} />
+                <AxisSelect
+                  label="Value Column"
+                  value={cfg.value_key}
+                  options={yOptions}
+                  onChange={(v) => patch({ value_key: v })}
+                  badge={colBadge}
+                />
               </>
             )}
           </div>
         </div>
+
+        {/* Date Range Filter Section */}
+        {/* Removed - date filtering is now at Dashboard level for simplicity */}
 
         <ColourPicker
           value={cfg.color || COLOUR_SWATCHES[0]}

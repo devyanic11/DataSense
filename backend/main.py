@@ -81,37 +81,20 @@ async def upload_file(file: UploadFile = File(...)):
     # Pre-generate Llama 3 chat suggestions so they are ready immediately
     suggestions = AIAgent.generate_suggestions(column_meta, filename)
 
-    # Convert the AI "logical" configs into actual Plotly JSON strings using the complete DataFrame
+    # Convert the AI configs into Plotly JSON strings
     plot_definitions = []
     if df is not None:
         for config in analysis.get("charts", []):
-            chart_type = config.get("type", "")
-            fig_json = None
-            if chart_type == "Bar Chart":
-                fig_json = Visualizer.generate_bar_chart(df, config.get("title", ""), config.get("x_key"), config.get("y_keys", []))
-            elif chart_type == "Line Chart":
-                fig_json = Visualizer.generate_line_chart(df, config.get("title", ""), config.get("x_key"), config.get("y_keys", []))
-            elif chart_type == "Pie Chart":
-                fig_json = Visualizer.generate_pie_chart(df, config.get("title", ""), config.get("label_key"), config.get("value_key"))
-            elif chart_type == "Scatter Plot":
-                fig_json = Visualizer.generate_scatter_plot(df, config.get("title", ""), config.get("x_key"), config.get("y_keys", [None])[0], config.get("tooltip_key"))
-            elif chart_type == "Histogram":
-                fig_json = Visualizer.generate_histogram(df, config.get("title", ""), config.get("x_key"), config.get("nbins", 30))
-            elif chart_type == "Box Plot":
-                fig_json = Visualizer.generate_box_plot(df, config.get("title", ""), config.get("x_key"), config.get("y_key"))
-            elif chart_type == "Heatmap":
-                fig_json = Visualizer.generate_heatmap(df, config.get("title", ""),config.get("columns"))
-
+            fig_json = _generate_plotly_for_config(df, config)
             if fig_json:
                 plot_definitions.append({
-                    "type": chart_type,
+                    "type": config.get("type"),
                     "title": config.get("title"),
                     "description": config.get("description"),
                     "plotly_json": fig_json
                 })
     else:
-         # Handle PDF / Non-tabular data charts (like Knowledge Graphs which don't use Plotly)
-         plot_definitions = analysis.get("charts", [])
+        plot_definitions = analysis.get("charts", [])
 
     return {
         "file_id": file_id,
@@ -124,9 +107,30 @@ async def upload_file(file: UploadFile = File(...)):
             "suggested_charts": [c.get("type", "") for c in analysis.get("charts", [])],
         },
         "chat_suggestions": suggestions,
-        "chart_configs": plot_definitions, # Now containing complete Plotly JSONs
+        "chart_configs": plot_definitions,
         "status": "success"
     }
+
+
+def _generate_plotly_for_config(df: pd.DataFrame, config: dict) -> Optional[str]:
+    """Generate Plotly JSON for a config."""
+    chart_type = config.get("type", "")
+    title = config.get("title", "")
+    
+    generators = {
+        "Bar Chart": lambda: Visualizer.generate_bar_chart(df, title, config.get("x_key"), config.get("y_keys", [])),
+        "Line Chart": lambda: Visualizer.generate_line_chart(df, title, config.get("x_key"), config.get("y_keys", [])),
+        "Pie Chart": lambda: Visualizer.generate_pie_chart(df, title, config.get("label_key"), config.get("value_key")),
+        "Scatter Plot": lambda: Visualizer.generate_scatter_plot(df, title, config.get("x_key"), config.get("y_keys", [None])[0], config.get("tooltip_key")),
+        "Histogram": lambda: Visualizer.generate_histogram(df, title, config.get("x_key"), config.get("nbins", 30)),
+        "Box Plot": lambda: Visualizer.generate_box_plot(df, title, config.get("x_key"), config.get("y_key")),
+        "Heatmap": lambda: Visualizer.generate_heatmap(df, title, config.get("columns")),
+    }
+    
+    return generators.get(chart_type, lambda: None)()
+
+
+
 
 
 class ChatRequest(BaseModel):
@@ -334,41 +338,15 @@ def _process_chat_response(response_text: str, request: ChatRequest) -> dict:
 
         charts = config_response.get("charts", [])
         if charts:
-            config = charts[0]
             df = GLOBAL_DFS.get(request.file_id)
             if df is not None:
-                fig_json = None
-                t = config.get("title", "")
-                xk = config.get("x_key")
-                yk = config.get("y_keys", [])
-                lk = config.get("label_key")
-                vk = config.get("value_key")
-                pk = config.get("path_cols", [lk or xk] if (lk or xk) else [])
-                CHAT_CHART_DISPATCH = {
-                    "Bar Chart":       lambda: Visualizer.generate_bar_chart(df, t, xk, yk),
-                    "Line Chart":      lambda: Visualizer.generate_line_chart(df, t, xk, yk),
-                    "Pie Chart":       lambda: Visualizer.generate_pie_chart(df, t, lk, vk),
-                    "Scatter Plot":    lambda: Visualizer.generate_scatter_plot(df, t, xk, yk[0] if yk else None, config.get("tooltip_key")),
-                    "Histogram":       lambda: Visualizer.generate_histogram(df, t, xk, config.get("nbins", 30)),
-                    "Box Plot":        lambda: Visualizer.generate_box_plot(df, t, xk, yk[0] if yk else None),
-                    "Heatmap":         lambda: Visualizer.generate_heatmap(df, t, config.get("columns")),
-                    "Area Chart":      lambda: Visualizer.generate_area_chart(df, t, xk, yk),
-                    "Violin Plot":     lambda: Visualizer.generate_violin_plot(df, t, xk, yk[0] if yk else None),
-                    "Treemap":         lambda: Visualizer.generate_treemap(df, t, pk, vk or (yk[0] if yk else None)),
-                    "Sunburst":        lambda: Visualizer.generate_sunburst(df, t, pk, vk or (yk[0] if yk else None)),
-                    "Funnel Chart":    lambda: Visualizer.generate_funnel_chart(df, t, lk or xk, vk or (yk[0] if yk else None)),
-                    "Waterfall Chart": lambda: Visualizer.generate_waterfall_chart(df, t, xk, yk[0] if yk else None),
-                }
-                chart_handler = CHAT_CHART_DISPATCH.get(chart_type)
-                if chart_handler:
-                    fig_json = chart_handler()
-
+                fig_json = _generate_plotly_for_config(df, charts[0])
                 if fig_json:
                     plotly_json = fig_json
                     chart_info = {
                         "type": chart_type,
-                        "title": config.get("title", ""),
-                        "description": config.get("description", "")
+                        "title": charts[0].get("title", ""),
+                        "description": charts[0].get("description", "")
                     }
 
     return {
@@ -408,14 +386,66 @@ class ReportRequest(BaseModel):
 
 @app.post("/api/report-summary")
 async def report_summary(request: ReportRequest):
-    """Generate AI narrative for PDF report export."""
-    result = AIAgent.generate_report_narrative(
+    """Generate comprehensive report with data summary + AI narrative."""
+    # Build data statistics section
+    data_stats = _build_data_stats(request.column_meta)
+    
+    # Get AI narrative
+    ai_narrative = AIAgent.generate_report_narrative(
         content_summary=request.content_summary,
         column_meta=request.column_meta,
         chart_configs=request.chart_configs,
         filename=request.filename,
     )
-    return result
+    
+    return {
+        "executive_summary": ai_narrative.get("executive_summary", ""),
+        "data_overview": data_stats,
+        "chart_interpretations": ai_narrative.get("chart_interpretations", {}),
+        "key_findings": ai_narrative.get("key_findings", []),
+        "closing_takeaway": ai_narrative.get("closing_takeaway", ""),
+    }
+
+
+def _build_data_stats(column_meta: dict) -> dict:
+    """Extract and format key statistics from column metadata."""
+    stats = {
+        "total_columns": len(column_meta),
+        "column_breakdown": {"numeric": 0, "categorical": 0, "datetime": 0},
+        "columns": []
+    }
+    
+    for col_name, col_info in column_meta.items():
+        col_type = col_info.get("type", "unknown")
+        
+        # Count types
+        if col_type == "numeric":
+            stats["column_breakdown"]["numeric"] += 1
+        elif col_type == "categorical":
+            stats["column_breakdown"]["categorical"] += 1
+        elif col_type == "datetime":
+            stats["column_breakdown"]["datetime"] += 1
+        
+        # Build column summary
+        col_summary = {
+            "name": col_name,
+            "type": col_type,
+            "null_count": col_info.get("null_count", 0),
+        }
+        
+        if col_type == "numeric":
+            col_summary.update({
+                "min": col_info.get("min"),
+                "max": col_info.get("max"),
+                "mean": col_info.get("mean"),
+            })
+        elif col_type == "categorical":
+            col_summary["unique_count"] = col_info.get("unique_count", 0)
+            col_summary["top_value"] = col_info.get("top_value")
+        
+        stats["columns"].append(col_summary)
+    
+    return stats
 
 
 class GraphRequest(BaseModel):
@@ -448,7 +478,7 @@ class RenderRequest(BaseModel):
     chart_type:  str
     title:       str
     x_key:       Optional[str] = None
-    y_keys:      Optional[List[str]] = []
+    y_keys:      Optional[List[str]] = None
     label_key:   Optional[str] = None
     value_key:   Optional[str] = None
     tooltip_key: Optional[str] = None
@@ -460,13 +490,16 @@ class RenderRequest(BaseModel):
 
 @app.post("/api/render")
 def render_chart(req: RenderRequest):
-    """Re-render a chart with user-chosen config. Pure logic, zero AI."""
+    """Re-render a chart with user-chosen config."""
     df = GLOBAL_DFS.get(req.file_id)
     if df is None:
         raise HTTPException(status_code=404, detail="DataFrame not found. Re-upload the file.")
 
     if req.color:
         _patch_palette(req.color)
+
+    # Normalize y_keys
+    y_keys = req.y_keys if req.y_keys else []
 
     CHART_DISPATCH = {
         "Bar Chart":       lambda: Visualizer.generate_bar_chart(df, req.title, req.x_key, req.y_keys or []),
@@ -495,3 +528,83 @@ def render_chart(req: RenderRequest):
         _reset_palette()
 
     return {"plotly_json": fig_json}
+
+
+# ─────────────────────────────────────────────────────────────
+# AGGREGATION ENDPOINTS — Data summarization & visualization
+# ─────────────────────────────────────────────────────────────
+
+class AggregateRequest(BaseModel):
+    file_id: str
+    group_by: str
+    agg_column: str
+    agg_function: str  # sum, count, avg, max, min, std
+
+
+@app.post("/api/aggregate")
+def aggregate_data(req: AggregateRequest):
+    """Group by a column and aggregate another column."""
+    df = GLOBAL_DFS.get(req.file_id)
+    if df is None:
+        raise HTTPException(status_code=404, detail="DataFrame not found")
+    
+    result = DataParser.aggregate_data(df, req.group_by, req.agg_column, req.agg_function)
+    return {
+        "group_by": req.group_by,
+        "agg_column": req.agg_column,
+        "agg_function": req.agg_function,
+        "data": result
+    }
+
+
+class TopValuesRequest(BaseModel):
+    file_id: str
+    column: str
+    n: int = 10
+
+
+@app.post("/api/top-values")
+def get_top_values(req: TopValuesRequest):
+    """Get top N most frequent values in a column."""
+    df = GLOBAL_DFS.get(req.file_id)
+    if df is None:
+        raise HTTPException(status_code=404, detail="DataFrame not found")
+    
+    result = DataParser.get_top_values(df, req.column, req.n)
+    return {"column": req.column, "top_values": result}
+
+
+class DistributionRequest(BaseModel):
+    file_id: str
+    column: str
+    bins: int = 10
+
+
+@app.post("/api/distribution")
+def get_distribution(req: DistributionRequest):
+    """Get numeric distribution (histogram data)."""
+    df = GLOBAL_DFS.get(req.file_id)
+    if df is None:
+        raise HTTPException(status_code=404, detail="DataFrame not found")
+    
+    result = DataParser.get_numeric_distribution(df, req.column, req.bins)
+    return {"column": req.column, "distribution": result}
+
+
+class PivotRequest(BaseModel):
+    file_id: str
+    rows: str
+    columns: str
+    values: str
+    agg: str = "sum"
+
+
+@app.post("/api/pivot")
+def get_pivot_table(req: PivotRequest):
+    """Get cross-tabulation (pivot table style) aggregation."""
+    df = GLOBAL_DFS.get(req.file_id)
+    if df is None:
+        raise HTTPException(status_code=404, detail="DataFrame not found")
+    
+    result = DataParser.get_pivot_summary(df, req.rows, req.columns, req.values, req.agg)
+    return result
