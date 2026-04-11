@@ -309,7 +309,9 @@ function ColourPicker({
             className={`w-7 h-7 rounded-full transition-all ${value === hex ? "ring-2 ring-offset-2 scale-110" : "hover:scale-110"}`}
             style={{
               backgroundColor: hex,
+              // @ts-ignore
               ringColor: "var(--accent)",
+              // @ts-ignore
               ringOffsetColor: "var(--bg-surface)",
             }}
             title={hex}

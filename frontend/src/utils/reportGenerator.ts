@@ -1,482 +1,546 @@
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
-import axios from 'axios';
-import type { InsightData, ChartConfig } from '../App';
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+import axios from "axios";
+import type { InsightData } from "../App";
 
 // ─── Types ───────────────────────────────────────────────────
 interface DataOverview {
-    total_columns: number;
-    column_breakdown: { numeric: number; categorical: number; datetime: number };
-    columns: Array<{
-        name: string;
-        type: string;
-        null_count?: number;
-        min?: number;
-        max?: number;
-        mean?: number;
-        unique_count?: number;
-        top_value?: string;
-    }>;
+  total_columns: number;
+  column_breakdown: { numeric: number; categorical: number; datetime: number };
+  columns: Array<{
+    name: string;
+    type: string;
+    null_count?: number;
+    min?: number;
+    max?: number;
+    mean?: number;
+    unique_count?: number;
+    top_value?: string;
+  }>;
 }
 
 interface ReportNarrative {
-    executive_summary: string;
-    data_overview?: DataOverview;
-    chart_interpretations: Record<string, string>;
-    key_findings: string[];
-    closing_takeaway: string;
+  executive_summary: string;
+  data_overview?: DataOverview;
+  chart_interpretations: Record<string, string>;
+  key_findings: string[];
+  closing_takeaway: string;
 }
 
 // ─── Constants ───────────────────────────────────────────────
-const PAGE_W = 210;  // A4 mm
+const PAGE_W = 210; // A4 mm
 const PAGE_H = 297;
 const MARGIN = 20;
 const CONTENT_W = PAGE_W - MARGIN * 2;
-const ACCENT = '#6366F1';
-const TEXT_PRIMARY = '#1a1a1a';
-const TEXT_SECONDARY = '#4a4a4a';
-const TEXT_MUTED = '#6b7280';
-const DIVIDER = '#e5e7eb';
+const ACCENT = "#6366F1";
+const TEXT_PRIMARY = "#1a1a1a";
+const TEXT_SECONDARY = "#4a4a4a";
+const TEXT_MUTED = "#6b7280";
+const DIVIDER = "#e5e7eb";
 
 // ─── Helpers ─────────────────────────────────────────────────
 
 function addPageNumber(pdf: jsPDF, pageNum: number) {
-    pdf.setFontSize(8);
-    pdf.setTextColor(TEXT_MUTED);
-    pdf.text(`Page ${pageNum}`, PAGE_W / 2, PAGE_H - 10, { align: 'center' });
-    pdf.text('DataSense Report', MARGIN, PAGE_H - 10);
+  pdf.setFontSize(8);
+  pdf.setTextColor(TEXT_MUTED);
+  pdf.text(`Page ${pageNum}`, PAGE_W / 2, PAGE_H - 10, { align: "center" });
+  pdf.text("DataSense Report", MARGIN, PAGE_H - 10);
 }
 
 function drawDivider(pdf: jsPDF, y: number): number {
-    pdf.setDrawColor(DIVIDER);
-    pdf.setLineWidth(0.3);
-    pdf.line(MARGIN, y, PAGE_W - MARGIN, y);
-    return y + 6;
+  pdf.setDrawColor(DIVIDER);
+  pdf.setLineWidth(0.3);
+  pdf.line(MARGIN, y, PAGE_W - MARGIN, y);
+  return y + 6;
 }
 
 /** Wraps text and returns lines + actual height consumed */
-function writeWrappedText(pdf: jsPDF, text: string, x: number, y: number,
-                          maxWidth: number, lineHeight: number): number {
-    const lines = pdf.splitTextToSize(text, maxWidth);
-    pdf.text(lines, x, y);
-    return y + lines.length * lineHeight;
+function writeWrappedText(
+  pdf: jsPDF,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number,
+): number {
+  const lines = pdf.splitTextToSize(text, maxWidth);
+  pdf.text(lines, x, y);
+  return y + lines.length * lineHeight;
 }
 
 /** Ensures we're not overflowing the page — adds new page if needed */
-function ensureSpace(pdf: jsPDF, currentY: number, needed: number, pageNum: { val: number }): number {
-    if (currentY + needed > PAGE_H - 25) {
-        addPageNumber(pdf, pageNum.val);
-        pdf.addPage();
-        pageNum.val += 1;
-        return MARGIN + 10;
-    }
-    return currentY;
+function ensureSpace(
+  pdf: jsPDF,
+  currentY: number,
+  needed: number,
+  pageNum: { val: number },
+): number {
+  if (currentY + needed > PAGE_H - 25) {
+    addPageNumber(pdf, pageNum.val);
+    pdf.addPage();
+    pageNum.val += 1;
+    return MARGIN + 10;
+  }
+  return currentY;
 }
 
 // ─── Main Export Function ────────────────────────────────────
 
 export async function generateReport(
-    data: InsightData,
-    onProgress?: (status: string) => void
+  data: InsightData,
+  onProgress?: (status: string) => void,
 ): Promise<void> {
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pageNum = { val: 1 };
+  const pdf = new jsPDF("p", "mm", "a4");
+  const pageNum = { val: 1 };
 
-    // ── Step 1: Fetch AI narrative (non-blocking, fallback on failure) ──
-    onProgress?.('Generating AI insights…');
-    let narrative: ReportNarrative = {
-        executive_summary: '',
-        chart_interpretations: {},
-        key_findings: [],
-        closing_takeaway: ''
-    };
+  // ── Step 1: Fetch AI narrative (non-blocking, fallback on failure) ──
+  onProgress?.("Generating AI insights…");
+  let narrative: ReportNarrative = {
+    executive_summary: "",
+    chart_interpretations: {},
+    key_findings: [],
+    closing_takeaway: "",
+  };
 
-    try {
-        const res = await axios.post('http://localhost:8000/api/report-summary', {
-            content_summary: data.content_summary,
-            column_meta: data.column_meta,
-            chart_configs: (data.chart_configs || []).map(c => ({
-                type: c.type, title: c.title, description: c.description
-            })),
-            filename: data.filename
-        });
-        if (res.data) narrative = res.data;
-    } catch (e) {
-        console.warn('AI narrative unavailable, proceeding with screenshot-only report');
-    }
+  try {
+    const res = await axios.post("http://localhost:8000/api/report-summary", {
+      content_summary: data.content_summary,
+      column_meta: data.column_meta,
+      chart_configs: (data.chart_configs || []).map((c) => ({
+        type: c.type,
+        title: c.title,
+        description: c.description,
+      })),
+      filename: data.filename,
+    });
+    if (res.data) narrative = res.data;
+  } catch (e) {
+    console.warn(
+      "AI narrative unavailable, proceeding with screenshot-only report",
+    );
+  }
 
-    const hasNarrative = !!narrative.executive_summary;
+  const hasNarrative = !!narrative.executive_summary;
 
-    // ═══════════════════════════════════════════════════════════
-    // PAGE 1 — Cover
-    // ═══════════════════════════════════════════════════════════
-    onProgress?.('Building cover page…');
+  // ═══════════════════════════════════════════════════════════
+  // PAGE 1 — Cover
+  // ═══════════════════════════════════════════════════════════
+  onProgress?.("Building cover page…");
 
-    // Accent bar at top
-    pdf.setFillColor(ACCENT);
-    pdf.rect(0, 0, PAGE_W, 4, 'F');
+  // Accent bar at top
+  pdf.setFillColor(ACCENT);
+  pdf.rect(0, 0, PAGE_W, 4, "F");
 
-    // Logo mark
-    pdf.setFillColor(ACCENT);
-    pdf.roundedRect(MARGIN, 60, 14, 14, 3, 3, 'F');
+  // Logo mark
+  pdf.setFillColor(ACCENT);
+  pdf.roundedRect(MARGIN, 60, 14, 14, 3, 3, "F");
+  pdf.setFontSize(9);
+  pdf.setTextColor("#ffffff");
+  pdf.text("DS", MARGIN + 3.5, 69);
+
+  // Title
+  pdf.setFontSize(32);
+  pdf.setTextColor(TEXT_PRIMARY);
+  pdf.setFont("helvetica", "bold");
+  pdf.text("DataSense", MARGIN + 20, 70);
+
+  pdf.setFontSize(14);
+  pdf.setTextColor(TEXT_SECONDARY);
+  pdf.setFont("helvetica", "normal");
+  pdf.text("Analysis Report", MARGIN + 20, 79);
+
+  // File info block
+  const rowCount = data.original_data?.length ?? 0;
+  const colCount = data.column_meta ? Object.keys(data.column_meta).length : 0;
+  const chartCount = data.chart_configs?.length ?? 0;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const timeStr = now.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  pdf.setDrawColor(DIVIDER);
+  pdf.setLineWidth(0.5);
+  pdf.line(MARGIN, 100, PAGE_W - MARGIN, 100);
+
+  pdf.setFontSize(11);
+  pdf.setTextColor(TEXT_PRIMARY);
+  pdf.setFont("helvetica", "bold");
+
+  const infoItems = [
+    ["File", data.filename],
+    ["Generated", `${dateStr} at ${timeStr}`],
+    ["Dataset", `${rowCount.toLocaleString()} rows × ${colCount} columns`],
+    ["Charts", `${chartCount} visualizations`],
+  ];
+
+  let infoY = 112;
+  for (const [label, value] of infoItems) {
     pdf.setFontSize(9);
-    pdf.setTextColor('#ffffff');
-    pdf.text('DS', MARGIN + 3.5, 69);
-
-    // Title
-    pdf.setFontSize(32);
-    pdf.setTextColor(TEXT_PRIMARY);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('DataSense', MARGIN + 20, 70);
-
-    pdf.setFontSize(14);
-    pdf.setTextColor(TEXT_SECONDARY);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text('Analysis Report', MARGIN + 20, 79);
-
-    // File info block
-    const rowCount = data.original_data?.length ?? 0;
-    const colCount = data.column_meta ? Object.keys(data.column_meta).length : 0;
-    const chartCount = data.chart_configs?.length ?? 0;
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
-    pdf.setDrawColor(DIVIDER);
-    pdf.setLineWidth(0.5);
-    pdf.line(MARGIN, 100, PAGE_W - MARGIN, 100);
-
+    pdf.setTextColor(TEXT_MUTED);
+    pdf.setFont("helvetica", "normal");
+    pdf.text(label.toUpperCase(), MARGIN, infoY);
     pdf.setFontSize(11);
     pdf.setTextColor(TEXT_PRIMARY);
-    pdf.setFont('helvetica', 'bold');
+    pdf.text(value, MARGIN + 35, infoY);
+    infoY += 10;
+  }
 
-    const infoItems = [
-        ['File', data.filename],
-        ['Generated', `${dateStr} at ${timeStr}`],
-        ['Dataset', `${rowCount.toLocaleString()} rows × ${colCount} columns`],
-        ['Charts', `${chartCount} visualizations`],
-    ];
+  pdf.line(MARGIN, infoY + 2, PAGE_W - MARGIN, infoY + 2);
 
-    let infoY = 112;
-    for (const [label, value] of infoItems) {
-        pdf.setFontSize(9);
-        pdf.setTextColor(TEXT_MUTED);
-        pdf.setFont('helvetica', 'normal');
-        pdf.text(label.toUpperCase(), MARGIN, infoY);
-        pdf.setFontSize(11);
-        pdf.setTextColor(TEXT_PRIMARY);
-        pdf.text(value, MARGIN + 35, infoY);
-        infoY += 10;
+  // Footer
+  pdf.setFontSize(7);
+  pdf.setTextColor(TEXT_MUTED);
+  pdf.text(
+    "Generated by DataSense · AI-Powered Data Intelligence",
+    PAGE_W / 2,
+    PAGE_H - 15,
+    { align: "center" },
+  );
+  addPageNumber(pdf, pageNum.val);
+
+  // ═══════════════════════════════════════════════════════════
+  // PAGE 2 — Executive Summary + Data Overview Table
+  // ═══════════════════════════════════════════════════════════
+  onProgress?.("Building summary and data overview…");
+  pdf.addPage();
+  pageNum.val += 1;
+  let y = MARGIN;
+
+  // Executive Summary
+  if (hasNarrative) {
+    pdf.setFillColor(ACCENT);
+    pdf.rect(MARGIN, y, 3, 10, "F");
+    pdf.setFontSize(16);
+    pdf.setTextColor(TEXT_PRIMARY);
+    pdf.setFont("helvetica", "bold");
+    pdf.text("Executive Summary", MARGIN + 8, y + 8);
+    y += 18;
+
+    pdf.setFontSize(10);
+    pdf.setTextColor(TEXT_SECONDARY);
+    pdf.setFont("helvetica", "normal");
+
+    const paragraphs = narrative.executive_summary
+      .split("\n")
+      .filter((p) => p.trim());
+    for (const para of paragraphs) {
+      y = ensureSpace(pdf, y, 20, pageNum);
+      y = writeWrappedText(pdf, para.trim(), MARGIN, y, CONTENT_W, 4.5);
+      y += 3;
+    }
+  }
+
+  // Data Overview Table
+  y = ensureSpace(pdf, y, 35, pageNum);
+  y += 6;
+
+  pdf.setFillColor(ACCENT);
+  pdf.rect(MARGIN, y, 3, 10, "F");
+  pdf.setFontSize(14);
+  pdf.setTextColor(TEXT_PRIMARY);
+  pdf.setFont("helvetica", "bold");
+  pdf.text("Dataset Overview", MARGIN + 8, y + 8);
+  y += 18;
+
+  // Column Statistics Table
+  const colMeta = data.column_meta || {};
+  const colNames = Object.keys(colMeta);
+
+  pdf.setFontSize(8);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFillColor("#f3f4f6");
+  const headerH = 6;
+  pdf.rect(MARGIN, y, CONTENT_W, headerH, "F");
+  pdf.setTextColor(TEXT_PRIMARY);
+  pdf.text("Column Name", MARGIN + 2, y + 4);
+  pdf.text("Type", MARGIN + 60, y + 4);
+  pdf.text("Statistics", MARGIN + 95, y + 4);
+  y += headerH + 1;
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(7);
+  pdf.setTextColor(TEXT_SECONDARY);
+
+  const maxRowsInTable = Math.min(colNames.length, 15);
+  for (let i = 0; i < maxRowsInTable; i++) {
+    y = ensureSpace(pdf, y, 6, pageNum);
+
+    const colName = colNames[i];
+    const colInfo = colMeta[colName];
+    const colType = colInfo?.type || "unknown";
+
+    let stats = "";
+    if (colType === "numeric") {
+      const min =
+        colInfo.min != null
+          ? typeof colInfo.min === "number"
+            ? colInfo.min.toFixed(1)
+            : colInfo.min
+          : "—";
+      const max =
+        colInfo.max != null
+          ? typeof colInfo.max === "number"
+            ? colInfo.max.toFixed(1)
+            : colInfo.max
+          : "—";
+      stats = `[${min}..${max}]`;
+    } else if (colType === "categorical") {
+      stats = `${colInfo.unique_count || "?"} unique`;
+    }
+    if (colInfo?.null_count > 0) {
+      stats += ` | ${colInfo.null_count} nulls`;
     }
 
-    pdf.line(MARGIN, infoY + 2, PAGE_W - MARGIN, infoY + 2);
+    pdf.text(colName.substring(0, 20), MARGIN + 2, y + 3);
+    pdf.text(colType, MARGIN + 60, y + 3);
+    pdf.text(stats.substring(0, 30), MARGIN + 95, y + 3);
+    y += 5;
+  }
 
-    // Footer
+  if (colNames.length > maxRowsInTable) {
     pdf.setFontSize(7);
     pdf.setTextColor(TEXT_MUTED);
-    pdf.text('Generated by DataSense · AI-Powered Data Intelligence', PAGE_W / 2, PAGE_H - 15, { align: 'center' });
-    addPageNumber(pdf, pageNum.val);
+    pdf.setFont("helvetica", "italic");
+    pdf.text(
+      `+ ${colNames.length - maxRowsInTable} more columns`,
+      MARGIN,
+      y + 2,
+    );
+  }
 
-    // ═══════════════════════════════════════════════════════════
-    // PAGE 2 — Executive Summary + Data Overview Table
-    // ═══════════════════════════════════════════════════════════
-    onProgress?.('Building summary and data overview…');
+  addPageNumber(pdf, pageNum.val);
+
+  // ═══════════════════════════════════════════════════════════
+  // PAGE 3+ — Charts (one per page)
+  // ═════════════════════════════════════════════════════════════
+  onProgress?.("Capturing charts…");
+
+  const plotlyElements = document.querySelectorAll(".js-plotly-plot");
+  const chartConfigs = data.chart_configs || [];
+
+  for (let i = 0; i < chartConfigs.length; i++) {
+    const cfg = chartConfigs[i];
+    if (!cfg.plotly_json) continue;
+
     pdf.addPage();
     pageNum.val += 1;
     let y = MARGIN;
 
-    // Executive Summary
-    if (hasNarrative) {
-        pdf.setFillColor(ACCENT);
-        pdf.rect(MARGIN, y, 3, 10, 'F');
-        pdf.setFontSize(16);
-        pdf.setTextColor(TEXT_PRIMARY);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text('Executive Summary', MARGIN + 8, y + 8);
-        y += 18;
-
-        pdf.setFontSize(10);
-        pdf.setTextColor(TEXT_SECONDARY);
-        pdf.setFont('helvetica', 'normal');
-
-        const paragraphs = narrative.executive_summary.split('\n').filter(p => p.trim());
-        for (const para of paragraphs) {
-            y = ensureSpace(pdf, y, 20, pageNum);
-            y = writeWrappedText(pdf, para.trim(), MARGIN, y, CONTENT_W, 4.5);
-            y += 3;
-        }
-    }
-
-    // Data Overview Table
-    y = ensureSpace(pdf, y, 35, pageNum);
-    y += 6;
-    
+    // Chart title
     pdf.setFillColor(ACCENT);
-    pdf.rect(MARGIN, y, 3, 10, 'F');
+    pdf.rect(MARGIN, y, 3, 8, "F");
     pdf.setFontSize(14);
     pdf.setTextColor(TEXT_PRIMARY);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Dataset Overview', MARGIN + 8, y + 8);
-    y += 18;
+    pdf.setFont("helvetica", "bold");
+    pdf.text(cfg.title || `Chart ${i + 1}`, MARGIN + 8, y + 6);
+    y += 14;
 
-    // Column Statistics Table
-    const colMeta = data.column_meta || {};
-    const colNames = Object.keys(colMeta);
-    
-    pdf.setFontSize(8);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFillColor('#f3f4f6');
-    const headerH = 6;
-    pdf.rect(MARGIN, y, CONTENT_W, headerH, 'F');
-    pdf.setTextColor(TEXT_PRIMARY);
-    pdf.text('Column Name', MARGIN + 2, y + 4);
-    pdf.text('Type', MARGIN + 60, y + 4);
-    pdf.text('Statistics', MARGIN + 95, y + 4);
-    y += headerH + 1;
-
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(7);
-    pdf.setTextColor(TEXT_SECONDARY);
-    
-    const maxRowsInTable = Math.min(colNames.length, 15);
-    for (let i = 0; i < maxRowsInTable; i++) {
-        y = ensureSpace(pdf, y, 6, pageNum);
-        
-        const colName = colNames[i];
-        const colInfo = colMeta[colName];
-        const colType = colInfo?.type || 'unknown';
-        
-        let stats = '';
-        if (colType === 'numeric') {
-            const min = colInfo.min != null ? (typeof colInfo.min === 'number' ? colInfo.min.toFixed(1) : colInfo.min) : '—';
-            const max = colInfo.max != null ? (typeof colInfo.max === 'number' ? colInfo.max.toFixed(1) : colInfo.max) : '—';
-            stats = `[${min}..${max}]`;
-        } else if (colType === 'categorical') {
-            stats = `${colInfo.unique_count || '?'} unique`;
-        }
-        if (colInfo?.null_count > 0) {
-            stats += ` | ${colInfo.null_count} nulls`;
-        }
-        
-        pdf.text(colName.substring(0, 20), MARGIN + 2, y + 3);
-        pdf.text(colType, MARGIN + 60, y + 3);
-        pdf.text(stats.substring(0, 30), MARGIN + 95, y + 3);
-        y += 5;
+    if (cfg.description) {
+      pdf.setFontSize(9);
+      pdf.setTextColor(TEXT_MUTED);
+      pdf.setFont("helvetica", "italic");
+      y = writeWrappedText(pdf, cfg.description, MARGIN, y, CONTENT_W, 3.8);
+      y += 4;
     }
 
-    if (colNames.length > maxRowsInTable) {
-        pdf.setFontSize(7);
-        pdf.setTextColor(TEXT_MUTED);
-        pdf.setFont('helvetica', 'italic');
-        pdf.text(`+ ${colNames.length - maxRowsInTable} more columns`, MARGIN, y + 2);
+    y = drawDivider(pdf, y);
+
+    // Capture chart screenshot via html2canvas on the Plotly DOM element
+    // We render the chart fresh using Plotly.toImage for cleaner output
+    const Plotly = (window as any).Plotly;
+    if (Plotly && cfg.plotly_json) {
+      try {
+        const parsed = JSON.parse(cfg.plotly_json);
+        const imgData = await Plotly.toImage(
+          {
+            data: parsed.data,
+            layout: {
+              ...parsed.layout,
+              width: 1000,
+              height: 550,
+              paper_bgcolor: "#ffffff",
+              plot_bgcolor: "#fafafa",
+              font: { color: "#1a1a1a" },
+            },
+          },
+          { format: "png", width: 1000, height: 550 },
+        );
+        const imgW = CONTENT_W;
+        const imgH = imgW * (550 / 1000);
+        pdf.addImage(imgData, "PNG", MARGIN, y, imgW, imgH);
+        y += imgH + 6;
+      } catch (e) {
+        // Fallback: try html2canvas on DOM element
+        if (plotlyElements[i]) {
+          try {
+            const canvas = await html2canvas(plotlyElements[i] as HTMLElement, {
+              backgroundColor: "#ffffff",
+              scale: 2,
+              useCORS: true,
+            });
+            const imgData = canvas.toDataURL("image/png");
+            const imgW = CONTENT_W;
+            const imgH = (canvas.height / canvas.width) * imgW;
+            pdf.addImage(imgData, "PNG", MARGIN, y, imgW, Math.min(imgH, 140));
+            y += Math.min(imgH, 140) + 6;
+          } catch {
+            pdf.setFontSize(10);
+            pdf.setTextColor(TEXT_MUTED);
+            pdf.text("[Chart could not be captured]", MARGIN, y + 10);
+            y += 20;
+          }
+        }
+      }
+    }
+
+    // AI caption for this chart
+    const caption = narrative.chart_interpretations?.[cfg.title || ""];
+    if (caption) {
+      y = ensureSpace(pdf, y, 20, pageNum);
+      pdf.setFillColor("#f3f4f6");
+      const captionLines = pdf.splitTextToSize(caption, CONTENT_W - 16);
+      const captionH = captionLines.length * 4.5 + 8;
+      pdf.roundedRect(MARGIN, y, CONTENT_W, captionH, 2, 2, "F");
+      pdf.setFontSize(9);
+      pdf.setTextColor(TEXT_SECONDARY);
+      pdf.setFont("helvetica", "italic");
+      pdf.text(captionLines, MARGIN + 8, y + 6);
+      y += captionH + 4;
     }
 
     addPageNumber(pdf, pageNum.val);
+  }
 
-    // ═══════════════════════════════════════════════════════════
-    // PAGE 3+ — Charts (one per page)
-    // ═════════════════════════════════════════════════════════════
-    onProgress?.('Capturing charts…');
+  // ═══════════════════════════════════════════════════════════
+  // KEY FINDINGS PAGE
+  // ═══════════════════════════════════════════════════════════
+  if (narrative.key_findings?.length > 0) {
+    onProgress?.("Adding key findings…");
+    pdf.addPage();
+    pageNum.val += 1;
+    let y = MARGIN;
 
-    const plotlyElements = document.querySelectorAll('.js-plotly-plot');
-    const chartConfigs = data.chart_configs || [];
+    pdf.setFillColor(ACCENT);
+    pdf.rect(MARGIN, y, 3, 10, "F");
+    pdf.setFontSize(16);
+    pdf.setTextColor(TEXT_PRIMARY);
+    pdf.setFont("helvetica", "bold");
+    pdf.text("Key Findings", MARGIN + 8, y + 8);
+    y += 22;
 
-    for (let i = 0; i < chartConfigs.length; i++) {
-        const cfg = chartConfigs[i];
-        if (!cfg.plotly_json) continue;
+    for (let fi = 0; fi < narrative.key_findings.length; fi++) {
+      y = ensureSpace(pdf, y, 25, pageNum);
 
-        pdf.addPage();
-        pageNum.val += 1;
-        let y = MARGIN;
+      // Numbered badge
+      pdf.setFillColor(ACCENT);
+      pdf.circle(MARGIN + 4, y + 1, 4, "F");
+      pdf.setFontSize(8);
+      pdf.setTextColor("#ffffff");
+      pdf.setFont("helvetica", "bold");
+      pdf.text(String(fi + 1), MARGIN + 2.5, y + 3.3);
 
-        // Chart title
-        pdf.setFillColor(ACCENT);
-        pdf.rect(MARGIN, y, 3, 8, 'F');
-        pdf.setFontSize(14);
-        pdf.setTextColor(TEXT_PRIMARY);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text(cfg.title || `Chart ${i + 1}`, MARGIN + 8, y + 6);
-        y += 14;
-
-        if (cfg.description) {
-            pdf.setFontSize(9);
-            pdf.setTextColor(TEXT_MUTED);
-            pdf.setFont('helvetica', 'italic');
-            y = writeWrappedText(pdf, cfg.description, MARGIN, y, CONTENT_W, 3.8);
-            y += 4;
-        }
-
-        y = drawDivider(pdf, y);
-
-        // Capture chart screenshot via html2canvas on the Plotly DOM element
-        // We render the chart fresh using Plotly.toImage for cleaner output
-        const Plotly = (window as any).Plotly;
-        if (Plotly && cfg.plotly_json) {
-            try {
-                const parsed = JSON.parse(cfg.plotly_json);
-                const imgData = await Plotly.toImage(
-                    { data: parsed.data, layout: { ...parsed.layout, width: 1000, height: 550, paper_bgcolor: '#ffffff', plot_bgcolor: '#fafafa', font: { color: '#1a1a1a' } } },
-                    { format: 'png', width: 1000, height: 550 }
-                );
-                const imgW = CONTENT_W;
-                const imgH = imgW * (550 / 1000);
-                pdf.addImage(imgData, 'PNG', MARGIN, y, imgW, imgH);
-                y += imgH + 6;
-            } catch (e) {
-                // Fallback: try html2canvas on DOM element
-                if (plotlyElements[i]) {
-                    try {
-                        const canvas = await html2canvas(plotlyElements[i] as HTMLElement, {
-                            backgroundColor: '#ffffff', scale: 2, useCORS: true
-                        });
-                        const imgData = canvas.toDataURL('image/png');
-                        const imgW = CONTENT_W;
-                        const imgH = (canvas.height / canvas.width) * imgW;
-                        pdf.addImage(imgData, 'PNG', MARGIN, y, imgW, Math.min(imgH, 140));
-                        y += Math.min(imgH, 140) + 6;
-                    } catch {
-                        pdf.setFontSize(10);
-                        pdf.setTextColor(TEXT_MUTED);
-                        pdf.text('[Chart could not be captured]', MARGIN, y + 10);
-                        y += 20;
-                    }
-                }
-            }
-        }
-
-        // AI caption for this chart
-        const caption = narrative.chart_interpretations?.[cfg.title || ''];
-        if (caption) {
-            y = ensureSpace(pdf, y, 20, pageNum);
-            pdf.setFillColor('#f3f4f6');
-            const captionLines = pdf.splitTextToSize(caption, CONTENT_W - 16);
-            const captionH = captionLines.length * 4.5 + 8;
-            pdf.roundedRect(MARGIN, y, CONTENT_W, captionH, 2, 2, 'F');
-            pdf.setFontSize(9);
-            pdf.setTextColor(TEXT_SECONDARY);
-            pdf.setFont('helvetica', 'italic');
-            pdf.text(captionLines, MARGIN + 8, y + 6);
-            y += captionH + 4;
-        }
-
-        addPageNumber(pdf, pageNum.val);
+      // Finding text
+      pdf.setFontSize(10);
+      pdf.setTextColor(TEXT_SECONDARY);
+      pdf.setFont("helvetica", "normal");
+      y = writeWrappedText(
+        pdf,
+        narrative.key_findings[fi],
+        MARGIN + 14,
+        y + 2,
+        CONTENT_W - 14,
+        4.5,
+      );
+      y += 6;
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // KEY FINDINGS PAGE
-    // ═══════════════════════════════════════════════════════════
-    if (narrative.key_findings?.length > 0) {
-        onProgress?.('Adding key findings…');
-        pdf.addPage();
-        pageNum.val += 1;
-        let y = MARGIN;
+    // Closing takeaway
+    if (narrative.closing_takeaway) {
+      y = ensureSpace(pdf, y, 30, pageNum);
+      y += 4;
+      y = drawDivider(pdf, y);
+      y += 2;
 
-        pdf.setFillColor(ACCENT);
-        pdf.rect(MARGIN, y, 3, 10, 'F');
-        pdf.setFontSize(16);
-        pdf.setTextColor(TEXT_PRIMARY);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text('Key Findings', MARGIN + 8, y + 8);
-        y += 22;
+      pdf.setFillColor("#eef2ff");
+      const takeawayLines = pdf.splitTextToSize(
+        narrative.closing_takeaway,
+        CONTENT_W - 16,
+      );
+      const tH = takeawayLines.length * 5 + 12;
+      pdf.roundedRect(MARGIN, y, CONTENT_W, tH, 3, 3, "F");
 
-        for (let fi = 0; fi < narrative.key_findings.length; fi++) {
-            y = ensureSpace(pdf, y, 25, pageNum);
+      pdf.setFontSize(8);
+      pdf.setTextColor(ACCENT);
+      pdf.setFont("helvetica", "bold");
+      pdf.text("KEY TAKEAWAY", MARGIN + 8, y + 7);
 
-            // Numbered badge
-            pdf.setFillColor(ACCENT);
-            pdf.circle(MARGIN + 4, y + 1, 4, 'F');
-            pdf.setFontSize(8);
-            pdf.setTextColor('#ffffff');
-            pdf.setFont('helvetica', 'bold');
-            pdf.text(String(fi + 1), MARGIN + 2.5, y + 3.3);
-
-            // Finding text
-            pdf.setFontSize(10);
-            pdf.setTextColor(TEXT_SECONDARY);
-            pdf.setFont('helvetica', 'normal');
-            y = writeWrappedText(pdf, narrative.key_findings[fi], MARGIN + 14, y + 2, CONTENT_W - 14, 4.5);
-            y += 6;
-        }
-
-        // Closing takeaway
-        if (narrative.closing_takeaway) {
-            y = ensureSpace(pdf, y, 30, pageNum);
-            y += 4;
-            y = drawDivider(pdf, y);
-            y += 2;
-
-            pdf.setFillColor('#eef2ff');
-            const takeawayLines = pdf.splitTextToSize(narrative.closing_takeaway, CONTENT_W - 16);
-            const tH = takeawayLines.length * 5 + 12;
-            pdf.roundedRect(MARGIN, y, CONTENT_W, tH, 3, 3, 'F');
-
-            pdf.setFontSize(8);
-            pdf.setTextColor(ACCENT);
-            pdf.setFont('helvetica', 'bold');
-            pdf.text('KEY TAKEAWAY', MARGIN + 8, y + 7);
-
-            pdf.setFontSize(10);
-            pdf.setTextColor(TEXT_PRIMARY);
-            pdf.setFont('helvetica', 'normal');
-            pdf.text(takeawayLines, MARGIN + 8, y + 14);
-        }
-
-        addPageNumber(pdf, pageNum.val);
+      pdf.setFontSize(10);
+      pdf.setTextColor(TEXT_PRIMARY);
+      pdf.setFont("helvetica", "normal");
+      pdf.text(takeawayLines, MARGIN + 8, y + 14);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // KNOWLEDGE GRAPH PAGE (if SVG exists in DOM and captures successfully)
-    // ═══════════════════════════════════════════════════════════
-    const kgSvg = document.querySelector('svg[viewBox]');
-    let kgCaptureSuccess = false;
-    if (kgSvg) {
-        try {
-            onProgress?.('Capturing knowledge graph…');
-            const kgContainer = kgSvg.closest('div');
-            if (kgContainer) {
-                const canvas = await html2canvas(kgContainer as HTMLElement, {
-                    backgroundColor: '#ffffff', scale: 2, useCORS: true
-                });
-                
-                // Only add page if canvas has meaningful content
-                if (canvas.width > 50 && canvas.height > 50) {
-                    const imgData = canvas.toDataURL('image/png');
+    addPageNumber(pdf, pageNum.val);
+  }
 
-                    pdf.addPage();
-                    pageNum.val += 1;
-                    let y = MARGIN;
+  // ═══════════════════════════════════════════════════════════
+  // KNOWLEDGE GRAPH PAGE (if SVG exists in DOM and captures successfully)
+  // ═══════════════════════════════════════════════════════════
+  const kgSvg = document.querySelector("svg[viewBox]");
+  if (kgSvg) {
+    try {
+      onProgress?.("Capturing knowledge graph…");
+      const kgContainer = kgSvg.closest("div");
+      if (kgContainer) {
+        const canvas = await html2canvas(kgContainer as HTMLElement, {
+          backgroundColor: "#ffffff",
+          scale: 2,
+          useCORS: true,
+        });
+        // Only add page if canvas has meaningful content
+        if (canvas.width > 50 && canvas.height > 50) {
+          const imgData = canvas.toDataURL("image/png");
 
-                    pdf.setFillColor(ACCENT);
-                    pdf.rect(MARGIN, y, 3, 10, 'F');
-                    pdf.setFontSize(16);
-                    pdf.setTextColor(TEXT_PRIMARY);
-                    pdf.setFont('helvetica', 'bold');
-                    pdf.text('Knowledge Graph', MARGIN + 8, y + 8);
-                    y += 18;
+          pdf.addPage();
+          pageNum.val += 1;
+          let y = MARGIN;
 
-                    const imgW = CONTENT_W;
-                    const imgH = (canvas.height / canvas.width) * imgW;
-                    pdf.addImage(imgData, 'PNG', MARGIN, y, imgW, Math.min(imgH, 180));
+          pdf.setFillColor(ACCENT);
+          pdf.rect(MARGIN, y, 3, 10, "F");
+          pdf.setFontSize(16);
+          pdf.setTextColor(TEXT_PRIMARY);
+          pdf.setFont("helvetica", "bold");
+          pdf.text("Knowledge Graph", MARGIN + 8, y + 8);
+          y += 18;
 
-                    addPageNumber(pdf, pageNum.val);
-                    kgCaptureSuccess = true;
-                }
-            }
-        } catch (e) {
-            // KG capture failed — skip silently, don't create blank page
-            console.warn('Knowledge graph capture failed:', e);
+          const imgW = CONTENT_W;
+          const imgH = (canvas.height / canvas.width) * imgW;
+          pdf.addImage(imgData, "PNG", MARGIN, y, imgW, Math.min(imgH, 180));
+
+          addPageNumber(pdf, pageNum.val);
         }
+      }
+    } catch (e) {
+      // KG capture failed — skip silently, don't create blank page
+      console.warn("Knowledge graph capture failed:", e);
     }
+  }
 
-    // ═══════════════════════════════════════════════════════════
-    // DATA SAMPLE TABLE (first 10 rows)
-    // ═══════════════════════════════════════════════════════════
-    // REMOVED: Data Sample page — statistics now shown on page 2
+  // ═══════════════════════════════════════════════════════════
+  // DATA SAMPLE TABLE (first 10 rows)
+  // ═══════════════════════════════════════════════════════════
+  // REMOVED: Data Sample page — statistics now shown on page 2
 
-    // ═══════════════════════════════════════════════════════════
-    // Save
-    // ═══════════════════════════════════════════════════════════
-    onProgress?.('Saving PDF…');
-    const safeName = data.filename.replace(/[^a-z0-9]/gi, '_');
-    pdf.save(`DataSense_${safeName}_Report.pdf`);
+  // ═══════════════════════════════════════════════════════════
+  // Save
+  // ═══════════════════════════════════════════════════════════
+  onProgress?.("Saving PDF…");
+  const safeName = data.filename.replace(/[^a-z0-9]/gi, "_");
+  pdf.save(`DataSense_${safeName}_Report.pdf`);
 }

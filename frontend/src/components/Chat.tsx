@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Bot, User, Pin, PinOff, Maximize2, X } from "lucide-react";
+import { Send, Pin, PinOff, Maximize2, X } from "lucide-react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -125,10 +125,10 @@ export default function Chat({
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>(
+  const [suggestions] = useState<string[]>(
     chatSuggestions && chatSuggestions.length > 0
       ? chatSuggestions
-      : generateFallbackSuggestions(columnMeta || {}, filename)
+      : generateFallbackSuggestions(columnMeta || {}, filename),
   );
   const [expandedTable, setExpandedTable] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
