@@ -1,12 +1,12 @@
 # DataSense Architecture and Design Document
 
-This document provides an in-depth look at the architecture, workflow, and design patterns used in building the DataSense application.
+This document provides an in-depth look at the architecture, workflow, and design patterns used in building the DataSense application, specifically focusing on the Hybrid Deterministic-Probabilistic pipeline.
 
 ## 1. High-Level Architecture
 
 DataSense follows a modern, decoupled client-server architecture:
-- **Frontend (Client)**: A React-based Single Page Application (SPA) built with Vite, TypeScript, Tailwind CSS, and Recharts.
-- **Backend (Server)**: A Python FastAPI application responsible for parsing data, handling file uploads, and orchestrating AI interactions.
+- **Frontend (Client)**: A React-based Single Page Application (SPA) built with Vite, TypeScript, Tailwind CSS v4, Plotly.js, and `react-force-graph-2d`.
+- **Backend (Server)**: A Python FastAPI application responsible for parsing data, handling file uploads, deterministic DataFrame execution, and orchestrating AI interactions.
 - **AI Layer (LLM API)**: Google's Gemini API serves as the core reasoning engine, invoked securely from the backend to analyze data schema and user queries.
 
 ### 1.1 Architecture Diagram
@@ -16,21 +16,25 @@ flowchart TB
     subgraph Client [Frontend - React / Vite]
         UI[User Interface]
         FileUpload[File Upload Component]
-        DashboardView[Dynamic Dashboard]
+        DashboardView[Dynamic Dashboard + 13 Chart Types]
         ChatInterface[Chat UI]
+        PhysicsGraph[Force-Directed Graph]
         
         UI --> FileUpload
         UI --> DashboardView
         UI --> ChatInterface
+        DashboardView --> PhysicsGraph
     end
 
     subgraph Server [Backend - FastAPI]
         Router[API Endpoints]
-        DataParser[Data Parser / Ingester]
-        AgentOrchestrator[AI Agent Orchestrator]
+        DataParser[Data Parser / DataFrame Host]
+        AgentOrchestrator[Multi-Agent Orchestrator]
+        PandasExecutor[Deterministic Pandas Engine]
         
         Router --> DataParser
         Router --> AgentOrchestrator
+        AgentOrchestrator <--> PandasExecutor
     end
 
     subgraph ExternalServices [External Integrations]
@@ -38,77 +42,58 @@ flowchart TB
     end
 
     %% Interactions
-    FileUpload -- "1. Multipart File Upload" --> Router
-    DataParser -- "2. Extract Schema & Stats" --> AgentOrchestrator
+    FileUpload -- "1. Upload File" --> Router
+    DataParser -- "2. Cache Data, Extract Schema" --> AgentOrchestrator
     AgentOrchestrator -- "3. Prompt & Metadata" --> Gemini
-    Gemini -- "4. JSON Insights & Suggestions" --> AgentOrchestrator
+    Gemini -- "4. JSON Operations/Configs" --> AgentOrchestrator
     AgentOrchestrator -- "5. Return Analysis payload" --> DashboardView
     
-    ChatInterface -- "6. Natural Language Query" --> Router
-    AgentOrchestrator -- "7. Determine Intent & Tag" --> Gemini
-    Gemini -- "8. Conversational Text + `<CHART: Type>`" --> ChatInterface
-    
-    %% Internal UI interactions
-    ChatInterface -. "9. Trigger Chart Render" .-> DashboardView
+    ChatInterface -- "6. Request Analysis/Chart" --> Router
+    Router -- "7. Regex Pre-check" --> AgentOrchestrator
+    AgentOrchestrator -- "8. Translates Query to Pandas" --> Gemini
+    AgentOrchestrator -- "9. Run Pandas Code" --> PandasExecutor
+    AgentOrchestrator -- "10. Narrate Results" --> Gemini
 ```
 
 ---
 
 ## 2. Core Workflows
 
-The system has two primary workflows: **Initial Data Analysis** and **Conversational Interactivity**.
+The system has two primary workflows: **Initial Data Analysis** and **Hybrid Conversational Interactivity**.
 
 ### 2.1 Initial Data Analysis Workflow
-When a user uploads a file, the system must parse the data without overwhelming the AI with millions of rows of data or unstructured noise.
+When a user uploads a file, the system must parse the data without overwhelming the AI with millions of rows.
 
-1. **Ingestion (`api/upload`)**: The React frontend sends the file as a `multipart/form-data` request.
+1. **Ingestion (`api/upload`)**: The React frontend sends the file.
 2. **Parsing & Introspection (`data_parser.py`)**: 
-   - Tabular files (CSV, XLSX, JSON) are loaded into a Pandas DataFrame.
-   - The parser extracts maximum 300 rows as a representative sample.
-   - **Crucial Step**: It calculates metadata for every column (data type, missing values, min/max for numbers, unique categories for strings).
+   - Tabular files are loaded into a Pandas DataFrame and **cached globally** on the backend.
+   - The parser extracts metadata for every column (data type, missing values, min/max, unique categories).
 3. **Multi-Agent Pipeline (`ai_agent.py`)**:
-   - **Analyzer Agent**: Takes the column metadata and generates an executive summary and suggests 3-4 charts.
-   - **Configuration Agent**: Takes those suggestions and maps the literal column names to axes (`x_key`, `y_keys`, `value_key`) suitable for Recharts.
-4. **Rendering (`Dashboard.tsx`)**: The frontend loops over `chart_configs` and mounts customized Recharts elements dynamically.
+   - **Analyzer Agent**: Generates an executive summary based purely on schema.
+   - **Configuration Agent**: Suggests layout structures and maps columns to Recharts/Plotly properties (`x_key`, `y_keys`, `path_cols`).
+4. **Rendering (`Dashboard.tsx`)**: The frontend receives JSON configurations and deterministic KPIs, rendering Plotly elements dynamically.
 
-### 2.2 Conversational Workflow (Chat-to-Viz)
-Users can request specific visualizations or ask questions about the data using natural language.
+### 2.2 Hybrid Conversational Workflow (Chat-to-Data)
+DataSense prevents AI hallucinations by executing queries deterministically in Python rather than relying on the LLM to guess answers or write unverified code.
 
-1. **Query Submission**: The user types "Show me a pie chart" in the `Chat.tsx` interface.
-2. **Contextual Prompting**: The backend constructs a prompt containing the user's query, chat history, and the structural summary of the active document.
-3. **Structured Emission**: The Gemini API acts under a strict negative constraint prompt to *never output code*. If the user asks for a chart, the model emits an invisible HTML-like routing tag: `<CHART: Pie Chart>`.
-4. **UI Interception**: The frontend regex engine scans the incoming text for `<CHART: ...>`. When found, it automatically:
-   - Updates the dashboard state by pushing a new timestamped `ChartRequest` object.
-   - Triggers `autoConfigForType()`, an algorithmic method that looks at the raw data and picks the best columns for a Pie Chart automatically.
-   - Scrolls the user up to see the newly minted visualization tab.
+1. **Query Submission**: User asks "what is the average salary by department?"
+2. **Deterministic Pre-Check (`main.py`)**: A regex engine checks if this is a visualization request. If so, it routes to the `Chat-to-Viz` pipeline to emit a `<CHART: ...>` tag.
+3. **AI Query Translation (Agent 3B)**: If not a visualization, the LLM translates the English query into a strict JSON pandas operation: `{"operation": "group_agg", "params": {"group_by": "department", "agg_col": "salary", "agg_func": "mean"}}`.
+4. **Deterministic Execution (`_execute_pandas_query`)**: The Python backend flawlessly executes the generated JSON instructions against the *full* cached dataset.
+5. **AI Narration**: The exact pandas numeric result is sent *back* to the LLM to format into human-readable markdown.
 
 ---
 
-## 3. Design Principles and Patterns
+## 3. Advanced Features
 
-### 3.1 LLM Data Privacy & Efficiency Concept
-**"Send the schema, not the data"**: LLMs have context limits and bill by tokens. DataSense never sends entire massive CSVs to the LLM. Instead, it computes statistical summaries (column names, types, value ranges) locally in Python using Pandas, and only sends that condensed metadata pattern to Gemini for reasoning.
+### 3.1 Unification of 13 Plotly Structures
+DataSense abstracts away charting logic by defining a universal `ChartConfig`. The AI determines the specific `chart_type` (out of 13 supported types including Treemap, Sunburst, Violin, Funnel, Waterfall, etc.) and maps columns accordingly. The frontend reacts to chat instructions containing `<CHART: Type>` by seamlessly switching the view and injecting the new component.
 
-### 3.2 Dynamic Component Rendering strategy
-The frontend avoids hardcoded visualizations by using an abstraction: `ChartConfig`.
-```typescript
-type ChartConfig = {
-  type: string;
-  x_key?: string;
-  y_keys?: string[];
-  // ...
-}
-```
-Recharts wrappers dynamically inspect `config.type` to decide whether to mount a `<BarChart>`, `<PieChart>`, or `<ScatterChart>`, passing it the appropriate variables. This creates a highly extensible system where adding a new chart type only requires adding a case to the switch statement.
+### 3.2 Physics-Based Knowledge Graphs (D3)
+For unstructured data or relational sets, DataSense drops Plotly in favor of `react-force-graph-2d`.
+- Nodes represent entities; links represent dynamically extracted relationships.
+- A D3.js physics engine uses `charge`, `collide`, and `center` mechanics.
+- Node size is determined by connection degree (`Math.sqrt(degree)`), ensuring highly connected hubs become visual centers of gravity.
 
-### 3.3 State Management Decoupling
-To enable Chat-to-Dashboard communication without complex global state (like Redux), DataSense hoists the `chartRequest` state to the root `App.tsx`:
-- `Chat.tsx` triggers `handleChartRequested(type)` and passes it up.
-- `App.tsx` updates `chartRequest: { type: string, ts: number }`.
-- `Dashboard.tsx` accepts `chartRequest` as a prop and uses `useEffect` to intercept the timestamp change and generate the new chart configuration algorithmically.
-
-### 3.4 Modern Light Theme Aesthetic
-The UI was explicitly engineered using Tailwind CSS to diverge from standard enterprise boilerplate:
-- **Glassmorphism**: Utilizing `backdrop-blur-md` and semi-transparent white backgrounds (`bg-white/80`) to create depth against a gradient backdrop.
-- **Warm Color Palette**: Moving away from sterile blues/purples toward an engaging warm palette (Orange 500, Yellow 500 gradients).
-- **Graceful Error States**: SVG-based fallback screens (like the Knowledge Graph processor handling empty relational data gracefully without crashing ReactFlow) ensures robustness.
+### 3.3 LLM Data Privacy Concept
+**"Send the schema, Execute the data"**: Raw row-level data is never sent to the LLM API. Only highly compressed, statistical summaries (column names, types, lengths) are transmitted. This enforces 100% data privacy and drastically mitigates token costs while maintaining insight accuracy.
