@@ -1,0 +1,429 @@
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0d0f14;--bg2:#13161e;--bg3:#1a1e2a;
+    --purple:#7c5cfc;--purple2:#a78bfa;--teal:#2dd4bf;
+    --amber:#f59e0b;--coral:#f87171;--green:#4ade80;
+    --text:#e2e8f0;--muted:#64748b;--card:#1e2330;
+  }
+  body{background:var(--bg);font-family:'Inter',sans-serif;color:var(--text);overflow:hidden}
+  #wrap{width:100%;height:560px;position:relative;overflow:hidden;background:var(--bg)}
+
+  /* Grid bg */
+  .grid-bg{position:absolute;inset:0;background-image:linear-gradient(rgba(124,92,252,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(124,92,252,.04) 1px,transparent 1px);background-size:40px 40px;pointer-events:none}
+
+  /* Scenes */
+  .scene{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;transition:opacity .6s ease}
+  .scene.active{opacity:1}
+
+  /* Logo scene */
+  #s0{background:var(--bg)}
+  .logo-text{font-size:48px;font-weight:700;letter-spacing:-2px;background:linear-gradient(135deg,var(--purple2),var(--teal));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .logo-sub{font-size:14px;color:var(--muted);letter-spacing:4px;text-transform:uppercase;margin-top:8px}
+  .logo-ring{width:100px;height:100px;border:2px solid;border-color:var(--purple) transparent var(--teal) transparent;border-radius:50%;animation:spin 2s linear infinite;margin-bottom:24px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* Upload scene */
+  #s1 .card{background:var(--card);border:1px solid rgba(124,92,252,.25);border-radius:16px;padding:32px 40px;text-align:center;width:340px}
+  .upload-icon{width:64px;height:64px;margin:0 auto 16px;border:2px dashed var(--purple2);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:28px;animation:pulse2 2s ease-in-out infinite}
+  @keyframes pulse2{0%,100%{border-color:var(--purple2);box-shadow:0 0 0 0 rgba(167,139,250,.3)}50%{border-color:var(--teal);box-shadow:0 0 0 8px rgba(45,212,191,.0)}}
+  .file-chip{display:inline-flex;align-items:center;gap:8px;background:rgba(124,92,252,.15);border:1px solid rgba(124,92,252,.3);border-radius:8px;padding:8px 14px;font-size:13px;margin-top:16px}
+  .progress-bar{height:4px;background:rgba(255,255,255,.08);border-radius:2px;margin-top:20px;overflow:hidden}
+  .progress-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--purple),var(--teal));border-radius:2px;transition:width 2s ease}
+  .agents-row{display:flex;gap:10px;margin-top:20px;justify-content:center}
+  .agent-pill{font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid;opacity:0;transform:translateY(6px);transition:all .4s ease}
+  .agent-pill.show{opacity:1;transform:translateY(0)}
+  .ap1{border-color:var(--purple2);color:var(--purple2);background:rgba(167,139,250,.08)}
+  .ap2{border-color:var(--teal);color:var(--teal);background:rgba(45,212,191,.08)}
+  .ap3{border-color:var(--amber);color:var(--amber);background:rgba(245,158,11,.08)}
+
+  /* Dashboard scene */
+  #s2{padding:20px}
+  .dash-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;width:100%;max-width:680px}
+  .dchart{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:14px;position:relative;overflow:hidden}
+  .dchart-title{font-size:11px;color:var(--muted);margin-bottom:8px;letter-spacing:.5px;text-transform:uppercase}
+  .kpi-val{font-size:28px;font-weight:700;background:linear-gradient(135deg,var(--purple2),var(--teal));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .kpi-label{font-size:11px;color:var(--muted);margin-top:2px}
+  .bar-wrap{display:flex;align-items:flex-end;gap:5px;height:70px;margin-top:4px}
+  .bar{width:18px;border-radius:3px 3px 0 0;transition:height 1.5s ease}
+  .mini-line{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .pie-slice{transform-origin:60px 60px}
+  .chart-anim{opacity:0;transform:translateY(10px);transition:all .5s ease}
+  .chart-anim.show{opacity:1;transform:translateY(0)}
+
+  /* Chat scene */
+  #s3{padding:24px}
+  .chat-wrap{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:16px;width:100%;max-width:540px;overflow:hidden}
+  .chat-header{padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .green-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green)}
+  .chat-body{padding:16px;display:flex;flex-direction:column;gap:12px;min-height:200px}
+  .msg{max-width:85%;font-size:13px;line-height:1.5;padding:10px 14px;border-radius:12px;opacity:0;transform:translateY(8px);transition:all .4s ease}
+  .msg.show{opacity:1;transform:translateY(0)}
+  .msg.user{background:rgba(124,92,252,.2);border:1px solid rgba(124,92,252,.3);align-self:flex-end;color:var(--purple2)}
+  .msg.ai{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);align-self:flex-start}
+  .typing{display:flex;gap:4px;align-items:center;padding:8px 0}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--teal);animation:bounce .9s ease infinite}
+  .dot:nth-child(2){animation-delay:.2s}
+  .dot:nth-child(3){animation-delay:.4s}
+  @keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}
+
+  /* Pipeline scene */
+  #s4{padding:20px}
+  .pipe-wrap{display:flex;flex-direction:column;align-items:center;gap:0;width:100%;max-width:600px}
+  .pstep{display:flex;align-items:center;gap:12px;width:100%;opacity:0;transform:translateX(-20px);transition:all .5s ease}
+  .pstep.show{opacity:1;transform:translateX(0)}
+  .pnode{background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 16px;font-size:12px;flex:1;display:flex;align-items:center;gap:10px}
+  .pnode-icon{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+  .p-purple{background:rgba(124,92,252,.2);border-color:rgba(124,92,252,.4)}
+  .p-teal{background:rgba(45,212,191,.2);border-color:rgba(45,212,191,.4)}
+  .p-amber{background:rgba(245,158,11,.2);border-color:rgba(245,158,11,.4)}
+  .p-green{background:rgba(74,222,128,.2);border-color:rgba(74,222,128,.4)}
+  .parrow{height:24px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:18px;width:100%;animation:flow 1.2s ease infinite}
+  @keyframes flow{0%,100%{opacity:.3;transform:translateY(-2px)}50%{opacity:1;transform:translateY(2px)}}
+
+  /* Scene titles */
+  .scene-label{position:absolute;top:16px;left:50%;transform:translateX(-50%);font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--muted)}
+
+  /* Bottom nav dots */
+  #dots{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:8px}
+  .ndot{width:6px;height:6px;border-radius:50%;background:var(--muted);transition:all .3s}
+  .ndot.active{background:var(--purple2);width:18px;border-radius:3px}
+
+  /* Particle canvas */
+  #particles{position:absolute;inset:0;pointer-events:none}
+</style>
+
+<div id="wrap">
+  <div class="grid-bg"></div>
+  <canvas id="particles"></canvas>
+
+  <!-- Scene 0: Logo -->
+  <div class="scene active" id="s0">
+    <div class="logo-ring"></div>
+    <div class="logo-text">DataSense</div>
+    <div class="logo-sub">AI-Powered Business Intelligence</div>
+  </div>
+
+  <!-- Scene 1: Upload -->
+  <div class="scene" id="s1">
+    <div class="scene-label">01 — Smart File Upload</div>
+    <div class="card">
+      <div class="upload-icon">📊</div>
+      <div style="font-size:15px;font-weight:600">Drop your data file</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">CSV · XLSX · JSON · PDF</div>
+      <div class="file-chip">📄 sales_data_2024.csv <span style="color:var(--green);margin-left:4px">✓</span></div>
+      <div class="progress-bar"><div class="progress-fill" id="pbar"></div></div>
+      <div class="agents-row">
+        <div class="agent-pill ap1" id="ag1">Schema Agent</div>
+        <div class="agent-pill ap2" id="ag2">Chart Agent</div>
+        <div class="agent-pill ap3" id="ag3">KPI Agent</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scene 2: Dashboard -->
+  <div class="scene" id="s2">
+    <div class="scene-label">02 — Auto-Generated Dashboard</div>
+    <div class="dash-grid">
+      <div class="dchart chart-anim" id="dc1" style="grid-column:1">
+        <div class="dchart-title">Total Revenue</div>
+        <div class="kpi-val" id="kpi1">$0</div>
+        <div class="kpi-label">↑ 18.4% vs last quarter</div>
+      </div>
+      <div class="dchart chart-anim" id="dc2" style="grid-column:2">
+        <div class="dchart-title">Active Users</div>
+        <div class="kpi-val" id="kpi2">0</div>
+        <div class="kpi-label">↑ 32.1% growth</div>
+      </div>
+      <div class="dchart chart-anim" id="dc3" style="grid-column:3">
+        <div class="dchart-title">Avg. Order Value</div>
+        <div class="kpi-val" id="kpi3">$0</div>
+        <div class="kpi-label">↑ 7.2% this month</div>
+      </div>
+      <div class="dchart chart-anim" id="dc4" style="grid-column:1/3">
+        <div class="dchart-title">Monthly Sales</div>
+        <div class="bar-wrap" id="barwrap"></div>
+      </div>
+      <div class="dchart chart-anim" id="dc5" style="grid-column:3">
+        <div class="dchart-title">Revenue Trend</div>
+        <svg width="100%" viewBox="0 0 120 70" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="lg1" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#7c5cfc" stop-opacity=".3"/>
+              <stop offset="100%" stop-color="#7c5cfc" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path id="linepath" d="M0 65 L0 65" fill="none" class="mini-line" stroke="var(--purple2)" stroke-dasharray="200" stroke-dashoffset="200"/>
+          <path id="areapth" d="" fill="url(#lg1)"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scene 3: Chat -->
+  <div class="scene" id="s3">
+    <div class="scene-label">03 — Natural Language Query</div>
+    <div class="chat-wrap">
+      <div class="chat-header">
+        <div class="green-dot"></div>
+        DataSense AI · Llama 3 + Gemini
+      </div>
+      <div class="chat-body" id="chatbody">
+        <div class="msg user" id="m1">What are the top 5 regions by total sales?</div>
+        <div id="typing-wrap" style="display:none">
+          <div class="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+        </div>
+        <div class="msg ai" id="m2">
+          <strong style="color:var(--teal)">Top 5 Regions by Sales:</strong><br><br>
+          1. North America — $4.2M &nbsp;<span style="color:var(--green)">▲</span><br>
+          2. Europe — $3.8M<br>
+          3. Asia-Pacific — $2.9M<br>
+          4. Latin America — $1.4M<br>
+          5. Middle East — $0.9M<br><br>
+          <span style="font-size:11px;color:var(--muted)">100% arithmetic accuracy · computed via Pandas</span>
+        </div>
+        <div class="msg user" id="m3">Show me a bar chart of this</div>
+        <div class="msg ai" id="m4">📊 Routing to visualization engine... Chart rendered on dashboard!</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scene 4: Pipeline -->
+  <div class="scene" id="s4">
+    <div class="scene-label">04 — Hybrid Deterministic Pipeline</div>
+    <div class="pipe-wrap">
+      <div class="pstep" id="pp1">
+        <div class="pnode p-purple">
+          <div class="pnode-icon" style="background:rgba(124,92,252,.25)">🗣️</div>
+          <div>
+            <div style="font-weight:600;font-size:12px">Natural Language Query</div>
+            <div style="font-size:11px;color:var(--muted)">"Top 5 regions by revenue"</div>
+          </div>
+        </div>
+      </div>
+      <div class="parrow">↓</div>
+      <div class="pstep" id="pp2">
+        <div class="pnode p-amber">
+          <div class="pnode-icon" style="background:rgba(245,158,11,.2)">🦙</div>
+          <div>
+            <div style="font-weight:600;font-size:12px">Llama 3 — Query Planner (Agent 3B)</div>
+            <div style="font-size:11px;color:var(--muted)">{"op":"group_agg","group_by":"region","agg":"sum"}</div>
+          </div>
+        </div>
+      </div>
+      <div class="parrow">↓</div>
+      <div class="pstep" id="pp3">
+        <div class="pnode p-teal">
+          <div class="pnode-icon" style="background:rgba(45,212,191,.2)">🐼</div>
+          <div>
+            <div style="font-weight:600;font-size:12px">Pandas Executor — Deterministic Math</div>
+            <div style="font-size:11px;color:var(--muted)">df.groupby('region')['sales'].sum() — 100% exact</div>
+          </div>
+        </div>
+      </div>
+      <div class="parrow">↓</div>
+      <div class="pstep" id="pp4">
+        <div class="pnode p-green">
+          <div class="pnode-icon" style="background:rgba(74,222,128,.2)">✨</div>
+          <div>
+            <div style="font-weight:600;font-size:12px">Llama 3 — Narration (Agent 4)</div>
+            <div style="font-size:11px;color:var(--muted)">Human-readable markdown response</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="dots">
+    <div class="ndot active"></div>
+    <div class="ndot"></div>
+    <div class="ndot"></div>
+    <div class="ndot"></div>
+    <div class="ndot"></div>
+  </div>
+</div>
+
+<script>
+const scenes = ['s0','s1','s2','s3','s4'];
+let cur = 0, running = false;
+const durations = [2800,4000,5000,5500,4500];
+
+// Particles
+const canvas = document.getElementById('particles');
+const ctx = canvas.getContext('2d');
+const wrap = document.getElementById('wrap');
+let particles = [];
+
+function resizeCanvas(){
+  canvas.width = wrap.offsetWidth;
+  canvas.height = wrap.offsetHeight;
+}
+resizeCanvas();
+
+for(let i=0;i<30;i++){
+  particles.push({
+    x: Math.random()*canvas.width,
+    y: Math.random()*canvas.height,
+    vx: (Math.random()-.5)*.3,
+    vy: (Math.random()-.5)*.3,
+    r: Math.random()*1.5+.5,
+    a: Math.random()*.4+.1
+  });
+}
+
+function drawParticles(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  particles.forEach(p=>{
+    p.x+=p.vx; p.y+=p.vy;
+    if(p.x<0)p.x=canvas.width;
+    if(p.x>canvas.width)p.x=0;
+    if(p.y<0)p.y=canvas.height;
+    if(p.y>canvas.height)p.y=0;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(124,92,252,${p.a})`;
+    ctx.fill();
+  });
+  requestAnimationFrame(drawParticles);
+}
+drawParticles();
+
+function updateDots(){
+  document.querySelectorAll('.ndot').forEach((d,i)=>{
+    d.classList.toggle('active',i===cur);
+  });
+}
+
+function showScene(n){
+  scenes.forEach((id,i)=>{
+    document.getElementById(id).classList.toggle('active',i===n);
+  });
+  updateDots();
+  if(n===1) initUpload();
+  if(n===2) initDash();
+  if(n===3) initChat();
+  if(n===4) initPipe();
+}
+
+function nextScene(){
+  cur=(cur+1)%scenes.length;
+  showScene(cur);
+}
+
+// Scene 1 animations
+function initUpload(){
+  setTimeout(()=>{document.getElementById('pbar').style.width='100%'},300);
+  setTimeout(()=>document.getElementById('ag1').classList.add('show'),1200);
+  setTimeout(()=>document.getElementById('ag2').classList.add('show'),1700);
+  setTimeout(()=>document.getElementById('ag3').classList.add('show'),2200);
+  // reset
+  setTimeout(()=>{
+    document.getElementById('pbar').style.width='0%';
+    document.getElementById('pbar').style.transition='none';
+    setTimeout(()=>document.getElementById('pbar').style.transition='width 2s ease',50);
+    ['ag1','ag2','ag3'].forEach(id=>document.getElementById(id).classList.remove('show'));
+  },3800);
+}
+
+// Scene 2 animations
+const barColors=['#7c5cfc','#a78bfa','#2dd4bf','#f59e0b','#4ade80','#f87171'];
+const barHeights=[65,50,40,70,55,45];
+function initDash(){
+  setTimeout(()=>{
+    ['dc1','dc2','dc3','dc4','dc5'].forEach((id,i)=>{
+      setTimeout(()=>document.getElementById(id).classList.add('show'),i*120);
+    });
+  },200);
+  // KPI counters
+  animCount('kpi1',0,4200000,'$',true,2000);
+  animCount('kpi2',0,84200,'',false,2000);
+  animCount('kpi3',0,127,'$',true,2000);
+  // Bars
+  const bw = document.getElementById('barwrap');
+  bw.innerHTML='';
+  ['J','F','M','A','M','J'].forEach((m,i)=>{
+    const col=document.createElement('div');
+    col.style.cssText='display:flex;flex-direction:column;align-items:center;gap:3px;flex:1';
+    const bar=document.createElement('div');
+    bar.className='bar';
+    bar.style.height='0px';
+    bar.style.background=barColors[i];
+    bar.style.opacity='.85';
+    col.appendChild(bar);
+    const lbl=document.createElement('div');
+    lbl.style.cssText='font-size:10px;color:#64748b';
+    lbl.textContent=m;
+    col.appendChild(lbl);
+    bw.appendChild(col);
+    setTimeout(()=>bar.style.height=barHeights[i]+'px',300+i*150);
+  });
+  // Line chart
+  setTimeout(()=>{
+    const pts=[[0,55],[20,48],[40,42],[60,30],[80,20],[100,15],[120,8]];
+    const d=pts.map((p,i)=>`${i===0?'M':'L'}${p[0]} ${p[1]}`).join(' ');
+    const ae='M0 70 '+pts.map(p=>`L${p[0]} ${p[1]}`).join(' ')+' L120 70 Z';
+    document.getElementById('linepath').setAttribute('d',d);
+    document.getElementById('areapth').setAttribute('d',ae);
+    const lp=document.getElementById('linepath');
+    lp.style.strokeDashoffset='0';
+    lp.style.transition='stroke-dashoffset 1.8s ease';
+  },600);
+  // reset
+  setTimeout(()=>{
+    ['dc1','dc2','dc3','dc4','dc5'].forEach(id=>document.getElementById(id).classList.remove('show'));
+  },4800);
+}
+
+function animCount(id,from,to,prefix,round,dur){
+  const el=document.getElementById(id);
+  if(!el)return;
+  const start=Date.now();
+  function tick(){
+    const p=Math.min((Date.now()-start)/dur,1);
+    const ease=1-Math.pow(1-p,3);
+    const val=Math.round(from+(to-from)*ease);
+    el.textContent=prefix+(round&&val>1000?'$'+formatNum(val):val.toLocaleString());
+    if(p<1)requestAnimationFrame(tick);
+  }
+  setTimeout(tick,400);
+}
+function formatNum(n){
+  if(n>=1000000)return (n/1000000).toFixed(1)+'M';
+  if(n>=1000)return (n/1000).toFixed(0)+'K';
+  return n;
+}
+
+// Scene 3 animations
+function initChat(){
+  ['m1','m2','m3','m4'].forEach(id=>document.getElementById(id).classList.remove('show'));
+  document.getElementById('typing-wrap').style.display='none';
+  setTimeout(()=>document.getElementById('m1').classList.add('show'),300);
+  setTimeout(()=>{document.getElementById('typing-wrap').style.display='block'},1000);
+  setTimeout(()=>{
+    document.getElementById('typing-wrap').style.display='none';
+    document.getElementById('m2').classList.add('show');
+  },2200);
+  setTimeout(()=>document.getElementById('m3').classList.add('show'),3200);
+  setTimeout(()=>document.getElementById('m4').classList.add('show'),4200);
+  setTimeout(()=>['m1','m2','m3','m4'].forEach(id=>document.getElementById(id).classList.remove('show')),5300);
+}
+
+// Scene 4 animations
+function initPipe(){
+  ['pp1','pp2','pp3','pp4'].forEach(id=>document.getElementById(id).classList.remove('show'));
+  ['pp1','pp2','pp3','pp4'].forEach((id,i)=>{
+    setTimeout(()=>document.getElementById(id).classList.add('show'),300+i*500);
+  });
+  setTimeout(()=>['pp1','pp2','pp3','pp4'].forEach(id=>document.getElementById(id).classList.remove('show')),4300);
+}
+
+// Auto-advance
+let timer;
+function schedNext(){
+  clearTimeout(timer);
+  timer=setTimeout(()=>{nextScene();schedNext();},durations[cur]);
+}
+schedNext();
+</script>
