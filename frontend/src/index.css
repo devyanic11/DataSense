@@ -148,6 +148,11 @@ body {
 .scrollbar-none { scrollbar-width: none; }
 .scrollbar-none::-webkit-scrollbar { display: none; }
 
+/* Clerk Modal Backdrop - Simple Black */
+.cl-modalBackdrop {
+  background: #000000 !important;
+}
+
 @media (max-width: 640px) {
   .chat-panel { width: 100%; }
 }

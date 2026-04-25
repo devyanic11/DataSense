@@ -1,0 +1,113 @@
+/* src/assets/landing-bg.css */
+
+.premium-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: #000;
+  overflow: hidden;
+}
+
+/* 🔲 GRID ONLY ON RIGHT SIDE */
+.premium-bg__grid {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 50%;   /* only half screen */
+  height: 100%;
+  z-index: 1;
+
+  background:
+    linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.05) 1px, transparent 1px);
+
+  background-size: 60px 60px;
+  opacity: 0.4;
+
+  animation: gridMove 50s linear infinite;
+}
+
+@keyframes gridMove {
+  0% { transform: translate(0, 0); }
+  100% { transform: translate(60px, 60px); }
+}
+
+/* 🌌 SOFT EDGE FADE (so grid blends) */
+.premium-bg__grid-fade {
+  position: absolute;
+  top: 0;
+  right: 50%;
+  width: 20%;
+  height: 100%;
+  z-index: 2;
+
+  background: linear-gradient(to left, transparent, #000);
+}
+
+/* ⚪ FLOATING BALLS */
+.premium-bg__particles {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+
+.premium-bg__particles span {
+  position: absolute;
+  display: block;
+  width: 6px;
+  height: 6px;
+  background: white;
+  opacity: 0.6;
+  border-radius: 50%;
+  filter: blur(1px);
+  animation: floatUp linear infinite;
+}
+
+/* ✨ Different speeds */
+.premium-bg__particles span:nth-child(odd) {
+  animation-duration: 12s;
+}
+.premium-bg__particles span:nth-child(even) {
+  animation-duration: 18s;
+}
+
+@keyframes floatUp {
+  0% {
+    transform: translateY(100vh) scale(1);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(-10vh) scale(0.8);
+    opacity: 0;
+  }
+}
+
+/* 🎯 SPOTLIGHT */
+.premium-bg__spotlight {
+  position: absolute;
+  top: 45%;
+  left: 40%;
+  width: 400px;
+  height: 400px;
+  transform: translate(-50%, -50%);
+
+  background: radial-gradient(circle, rgba(255,255,255,0.05), transparent 70%);
+  z-index: 4;
+}
+
+/* 🌑 VIGNETTE */
+.premium-bg__vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+
+  background: radial-gradient(
+    ellipse at center,
+    transparent 60%,
+    rgba(0,0,0,0.9) 100%
+  );
+}
